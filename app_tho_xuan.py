@@ -1,0 +1,647 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+WEB APP DỰ BÁO MƯA & DÔNG SÂN BAY THỌ XUÂN (VVTX) - CÓ THÔNG BÁO THAY ĐỔI KHI CẬP NHẬT
+"""
+
+from __future__ import annotations
+
+import html
+import math
+import os
+from dataclasses import dataclass, asdict
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import requests
+import streamlit as st
+
+# =========================
+# 1. CẤU HÌNH & XÁC THỰC TÀI KHOẢN
+# =========================
+
+AIRPORT_NAME = "Sân bay Thọ Xuân (VVTX)"
+LATITUDE = 19.9017
+LONGITUDE = 105.4678
+TIMEZONE = "Asia/Bangkok"
+
+FORECAST_DAYS = 7
+REQUEST_TIMEOUT = 30
+
+OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+
+XWEATHER_CLIENT_ID = os.getenv("XWEATHER_CLIENT_ID", "xWCER0sSog3I6UWhHT5ZY")
+XWEATHER_CLIENT_SECRET = os.getenv("XWEATHER_CLIENT_SECRET", "oZbzVI2onipassrq3AXHgEC9KmtbbDisM3oMnHKQ")
+XWEATHER_API = "https://data.api.xweather.com"
+XWEATHER_ENABLED = bool(XWEATHER_CLIENT_ID and XWEATHER_CLIENT_SECRET)
+XWEATHER_WEIGHT = 0.30
+
+HOURLY_VARIABLES = [
+    "temperature_2m",
+    "relative_humidity_2m",
+    "dew_point_2m",
+    "precipitation_probability",
+    "precipitation",
+    "rain",
+    "showers",
+    "weather_code",
+    "cloud_cover",
+    "cloud_cover_low",
+    "cloud_cover_mid",
+    "cloud_cover_high",
+    "visibility",
+    "surface_pressure",
+    "cape",
+    "wind_speed_10m",
+    "wind_direction_10m",
+    "wind_gusts_10m",
+    "relative_humidity_850hPa",
+    "relative_humidity_700hPa",
+    "vertical_velocity_700hPa",
+]
+
+st.set_page_config(page_title="Thời tiết Thọ Xuân (VVTX)", page_icon="🌤️", layout="wide")
+
+# Khởi tạo trạng thái đăng nhập và lưu vết dữ liệu cũ
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+if "last_forecasts" not in st.session_state:
+    st.session_state["last_forecasts"] = None
+if "change_notification" not in st.session_state:
+    st.session_state["change_notification"] = None
+
+def render_login_screen():
+    st.markdown("""
+    <style>
+        .login-card { max-width: 400px; margin: 80px auto; padding: 30px; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        st.markdown("### ✈️ Đăng nhập Hệ thống VVTX")
+        st.caption("Vui lòng nhập tài khoản quản trị trạm khí tượng.")
+        with st.form("login_form"):
+            username = st.text_input("Tên đăng nhập")
+            password = st.text_input("Mật khẩu", type="password")
+            submit = st.form_submit_button("Truy cập hệ thống", use_container_width=True)
+            if submit:
+                if username == "admin" and password == "thoxuan2026":
+                    st.session_state["logged_in"] = True
+                    st.rerun()
+                else:
+                    st.error("Sai tên đăng nhập hoặc mật khẩu! (Gợi ý: admin / thoxuan2026)")
+
+if not st.session_state["logged_in"]:
+    render_login_screen()
+    st.stop()
+
+# =========================
+# 2. KIỂU DỮ LIỆU & THUẬT TOÁN
+# =========================
+
+@dataclass
+class HourlyForecast:
+    forecast_time: str
+    temperature_2m: float
+    relative_humidity_2m: float
+    dew_point_2m: float
+    precipitation_probability_model: float
+    precipitation: float
+    rain: float
+    showers: float
+    weather_code: int
+    cloud_cover: float
+    cloud_cover_low: float
+    cloud_cover_mid: float
+    cloud_cover_high: float
+    visibility_m: float
+    surface_pressure: float
+    cape: float
+    wind_speed_10m: float
+    wind_direction_10m: float
+    wind_gusts_10m: float
+    relative_humidity_850hPa: float
+    relative_humidity_700hPa: float
+    vertical_velocity_700hPa: float
+
+    xweather_pop: Optional[float] = None
+    xweather_precip_mm: Optional[float] = None
+    xweather_visibility_km: Optional[float] = None
+    xweather_weather: str = ""
+    xweather_lightning_score: float = 0.0
+
+    radar_score: float = 0.0
+    moisture_score: float = 0.0
+    cloud_score: float = 0.0
+    model_rain_score: float = 0.0
+    instability_score: float = 0.0
+    lifting_score: float = 0.0
+    pop_calibrated: float = 0.0
+    thunder_probability: float = 0.0
+    rain_level: str = ""
+    confidence_note: str = ""
+
+def clamp(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
+    return max(minimum, min(maximum, value))
+
+def safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return default if value is None else float(value)
+    except (TypeError, ValueError):
+        return default
+
+def safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return default if value is None else int(value)
+    except (TypeError, ValueError):
+        return default
+
+def sigmoid(value: float) -> float:
+    if value >= 0:
+        return 1.0 / (1.0 + math.exp(-value))
+    z = math.exp(value)
+    return z / (1.0 + z)
+
+def normalize(value: float, low: float, high: float) -> float:
+    if high <= low:
+        return 0.0
+    return clamp((value - low) / (high - low) * 100.0)
+
+def dewpoint_spread(temperature: float, dewpoint: float) -> float:
+    return max(0.0, temperature - dewpoint)
+
+def get_hour(dt_text: str) -> int:
+    return datetime.fromisoformat(dt_text).hour
+
+def get_month(dt_text: str) -> int:
+    return datetime.fromisoformat(dt_text).month
+
+def wind_deg_to_dir(deg: float) -> str:
+    dirs = ["B", "ĐB", "Đ", "ĐN", "N", "TN", "T", "TB"]
+    idx = int((deg + 22.5) // 45) % 8
+    return dirs[idx]
+
+def fetch_open_meteo() -> Dict[str, Any]:
+    params = {
+        "latitude": LATITUDE,
+        "longitude": LONGITUDE,
+        "hourly": ",".join(HOURLY_VARIABLES),
+        "timezone": TIMEZONE,
+        "forecast_days": FORECAST_DAYS,
+        "wind_speed_unit": "kmh",
+        "precipitation_unit": "mm",
+    }
+    response = requests.get(OPEN_METEO_URL, params=params, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    return response.json()
+
+def parse_forecasts(data: Dict[str, Any]) -> List[HourlyForecast]:
+    hourly = data["hourly"]
+    times = hourly["time"]
+    forecasts: List[HourlyForecast] = []
+    for i, forecast_time in enumerate(times):
+        forecasts.append(
+            HourlyForecast(
+                forecast_time=str(forecast_time),
+                temperature_2m=safe_float(hourly.get("temperature_2m", [0]*len(times))[i]),
+                relative_humidity_2m=safe_float(hourly.get("relative_humidity_2m", [0]*len(times))[i]),
+                dew_point_2m=safe_float(hourly.get("dew_point_2m", [0]*len(times))[i]),
+                precipitation_probability_model=safe_float(hourly.get("precipitation_probability", [0]*len(times))[i]),
+                precipitation=safe_float(hourly.get("precipitation", [0]*len(times))[i]),
+                rain=safe_float(hourly.get("rain", [0]*len(times))[i]),
+                showers=safe_float(hourly.get("showers", [0]*len(times))[i]),
+                weather_code=safe_int(hourly.get("weather_code", [0]*len(times))[i]),
+                cloud_cover=safe_float(hourly.get("cloud_cover", [0]*len(times))[i]),
+                cloud_cover_low=safe_float(hourly.get("cloud_cover_low", [0]*len(times))[i]),
+                cloud_cover_mid=safe_float(hourly.get("cloud_cover_mid", [0]*len(times))[i]),
+                cloud_cover_high=safe_float(hourly.get("cloud_cover_high", [0]*len(times))[i]),
+                visibility_m=safe_float(hourly.get("visibility", [0]*len(times))[i]),
+                surface_pressure=safe_float(hourly.get("surface_pressure", [0]*len(times))[i]),
+                cape=safe_float(hourly.get("cape", [0]*len(times))[i]),
+                wind_speed_10m=safe_float(hourly.get("wind_speed_10m", [0]*len(times))[i]),
+                wind_direction_10m=safe_float(hourly.get("wind_direction_10m", [0]*len(times))[i]),
+                wind_gusts_10m=safe_float(hourly.get("wind_gusts_10m", [0]*len(times))[i]),
+                relative_humidity_850hPa=safe_float(hourly.get("relative_humidity_850hPa", [0]*len(times))[i]),
+                relative_humidity_700hPa=safe_float(hourly.get("relative_humidity_700hPa", [0]*len(times))[i]),
+                vertical_velocity_700hPa=safe_float(hourly.get("vertical_velocity_700hPa", [0]*len(times))[i]),
+            )
+        )
+    return forecasts
+
+def local_hour_key(value: str) -> str:
+    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(ZoneInfo(TIMEZONE)).replace(tzinfo=None)
+    return dt.replace(minute=0, second=0, microsecond=0).isoformat(timespec="minutes")
+
+def fetch_xweather_forecast() -> Dict[str, Dict[str, Any]]:
+    if not XWEATHER_ENABLED:
+        return {}
+    url = f"{XWEATHER_API}/forecasts/{LATITUDE},{LONGITUDE}"
+    params = {"client_id": XWEATHER_CLIENT_ID, "client_secret": XWEATHER_CLIENT_SECRET, "filter": "1hr", "limit": FORECAST_DAYS * 24}
+    try:
+        res = requests.get(url, params=params, timeout=15)
+        payload = res.json()
+        if not payload.get("success"): return {}
+        result = {}
+        for item in payload.get("response", []):
+            for period in item.get("periods", []):
+                iso = period.get("dateTimeISO") or period.get("validTime")
+                if iso: result[local_hour_key(str(iso))] = period
+        return result
+    except Exception:
+        return {}
+
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    radius = 6371.0088
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * radius * math.asin(math.sqrt(a))
+
+def lightning_score_from_distance(distance_km: float) -> float:
+    if distance_km <= 10: return 100.0
+    if distance_km <= 20: return 90.0
+    if distance_km <= 40: return 75.0
+    if distance_km <= 60: return 55.0
+    if distance_km <= 100: return 30.0
+    return 0.0
+
+def fetch_xweather_lightning_score() -> float:
+    if not XWEATHER_ENABLED: return 0.0
+    url = f"{XWEATHER_API}/lightning/closest"
+    params = {"client_id": XWEATHER_CLIENT_ID, "client_secret": XWEATHER_CLIENT_SECRET, "p": f"{LATITUDE},{LONGITUDE}", "radius": "100km", "limit": 20}
+    try:
+        res = requests.get(url, params=params, timeout=10)
+        payload = res.json()
+        if not payload.get("success") or not payload.get("response"): return 0.0
+        distances = []
+        for item in payload.get("response", []):
+            loc = item.get("loc", {})
+            lat = safe_float(loc.get("lat"), 999.0)
+            lon = safe_float(loc.get("long"), 999.0)
+            if abs(lat) <= 90 and abs(lon) <= 180:
+                distances.append(haversine_km(LATITUDE, LONGITUDE, lat, lon))
+        return lightning_score_from_distance(min(distances)) if distances else 0.0
+    except Exception:
+        return 0.0
+
+def process_forecast_models(forecasts: List[HourlyForecast]) -> List[HourlyForecast]:
+    xw_forecast = fetch_xweather_forecast()
+    lightning_score = fetch_xweather_lightning_score()
+    now_dt = datetime.now(ZoneInfo(TIMEZONE)).replace(minute=0, second=0, microsecond=0, tzinfo=None)
+
+    for fc in forecasts:
+        key = local_hour_key(fc.forecast_time)
+        xw = xw_forecast.get(key)
+        if xw:
+            fc.xweather_pop = safe_float(xw.get("pop")) if xw.get("pop") is not None else None
+            fc.xweather_precip_mm = safe_float(xw.get("precipMM")) if xw.get("precipMM") is not None else None
+            fc.xweather_visibility_km = safe_float(xw.get("visibilityKM")) if xw.get("visibilityKM") is not None else None
+            fc.xweather_weather = str(xw.get("weatherPrimary") or xw.get("weather") or "")
+
+        fc_dt = datetime.fromisoformat(fc.forecast_time.replace("Z", ""))
+        diff_hours = int((fc_dt - now_dt).total_seconds() // 3600)
+        if diff_hours == 0:
+            fc.xweather_lightning_score = lightning_score
+        elif diff_hours == 1 and lightning_score > 0:
+            fc.xweather_lightning_score = max(0.0, lightning_score * 0.6)
+        elif diff_hours == 2 and lightning_score > 0:
+            fc.xweather_lightning_score = max(0.0, lightning_score * 0.3)
+
+        fc.radar_score = max(fc.radar_score, fc.xweather_lightning_score)
+
+        spread = dewpoint_spread(fc.temperature_2m, fc.dew_point_2m)
+        moisture = 0.30 * fc.relative_humidity_2m + 0.45 * fc.relative_humidity_850hPa + 0.25 * fc.relative_humidity_700hPa
+        if spread <= 1.5: moisture += 8
+        elif spread <= 3.0: moisture += 4
+        elif spread >= 8.0: moisture -= 10
+        fc.moisture_score = clamp(moisture)
+
+        fc.cloud_score = clamp(0.50 * fc.cloud_cover_low + 0.35 * fc.cloud_cover_mid + 0.15 * fc.cloud_cover_high)
+        
+        xw_rain = fc.xweather_precip_mm if fc.xweather_precip_mm is not None else 0.0
+        rain_amount = max(fc.precipitation, fc.rain, fc.showers, xw_rain)
+        amount_score = clamp(100.0 * (1.0 - math.exp(-rain_amount / 2.0)))
+
+        model_pop = fc.precipitation_probability_model
+        if fc.xweather_pop is not None:
+            model_pop = (1.0 - XWEATHER_WEIGHT) * model_pop + XWEATHER_WEIGHT * fc.xweather_pop
+
+        fc.model_rain_score = clamp(0.65 * model_pop + 0.35 * amount_score)
+        
+        cape_score = normalize(fc.cape, 100.0, 2200.0)
+        hour = get_hour(fc.forecast_time)
+        month = get_month(fc.forecast_time)
+        daytime_factor = 1.10 if 11 <= hour <= 18 else (0.80 if hour <= 6 or hour >= 21 else 1.0)
+        seasonal_factor = 1.10 if month in (5, 6, 7, 8, 9) else (0.65 if month in (11, 12, 1, 2) else 0.90)
+        fc.instability_score = clamp(cape_score * daytime_factor * seasonal_factor)
+
+        fc.lifting_score = clamp(max(0.0, -fc.vertical_velocity_700hPa) * 100.0)
+
+        wind_dir = fc.wind_direction_10m
+        if 30 <= wind_dir <= 130 and fc.wind_speed_10m >= 5:
+            fc.moisture_score = clamp(fc.moisture_score + 5.0)
+        elif 200 <= wind_dir <= 260 and spread > 4.0:
+            fc.moisture_score = clamp(fc.moisture_score - 8.0)
+
+        z = (-4.20 + 0.027 * model_pop + 0.016 * fc.moisture_score + 0.010 * fc.cloud_score +
+             0.010 * fc.model_rain_score + 0.004 * fc.instability_score + 0.003 * fc.lifting_score +
+             0.010 * fc.radar_score + 0.65 * min(rain_amount, 5.0) - 0.055 * max(spread - 3.0, 0.0))
+        prob = sigmoid(z) * 100.0
+
+        if fc.relative_humidity_850hPa < 50 and rain_amount < 0.1 and fc.radar_score < 20: prob = min(prob, 25)
+        if fc.relative_humidity_700hPa < 40 and rain_amount < 0.1 and fc.radar_score < 20: prob = min(prob, 35)
+        if fc.cloud_cover_low < 20 and fc.cloud_cover_mid < 30 and rain_amount < 0.1: prob = min(prob, 20)
+        if rain_amount >= 0.5 and model_pop >= 50: prob = max(prob, 55)
+
+        fc.pop_calibrated = round(clamp(prob), 1)
+
+        thunder_weather_code = fc.weather_code in (95, 96, 99) or "thunder" in fc.xweather_weather.lower()
+        thunder_z = (-7.20 + 0.00165 * fc.cape + 0.010 * model_pop + 0.50 * min(rain_amount, 4.0) +
+                     0.014 * fc.radar_score + 0.004 * fc.moisture_score + (2.20 if thunder_weather_code else 0.0))
+        thunder_prob = sigmoid(thunder_z) * 100.0
+        if fc.cape < 300: thunder_prob = min(thunder_prob, 10)
+        fc.thunder_probability = round(clamp(thunder_prob), 1)
+
+        fc.rain_level = "Rất cao" if fc.pop_calibrated >= 80 else ("Cao" if fc.pop_calibrated >= 60 else ("Trung bình" if fc.pop_calibrated >= 40 else "Thấp"))
+        fc.confidence_note = "Open-Meteo + Xweather" if fc.xweather_pop is not None else "Open-Meteo"
+
+    return forecasts
+
+# =========================
+# 3. HÀM TẠO BẢNG NGANG & BIỂU ĐỒ
+# =========================
+
+def get_weather_icon(fc: HourlyForecast) -> str:
+    if fc.thunder_probability >= 45: return "⛈️"
+    if fc.pop_calibrated >= 60 or max(fc.precipitation, fc.rain) >= 0.5: return "🌧️"
+    if fc.pop_calibrated >= 35 or max(fc.precipitation, fc.rain) >= 0.1: return "🌦️"
+    if fc.cloud_cover >= 75: return "☁️"
+    if fc.cloud_cover >= 35: return "⛅"
+    return "☀️"
+
+def get_temp_bg(temp: float) -> str:
+    if temp >= 35: return "#ffcccc"
+    if temp >= 30: return "#ffe5cc"
+    if temp >= 25: return "#fff5cc"
+    if temp >= 20: return "#e6f7ff"
+    return "#cce5ff"
+
+def get_pop_bg(pop: float) -> str:
+    if pop >= 75: return "#ff9999; font-weight: bold; color: #7a0000;"
+    if pop >= 50: return "#ffcc99; font-weight: bold;"
+    if pop >= 30: return "#fff2cc;"
+    return "#ffffff;"
+
+def render_rp5_horizontal_table(forecasts: List[HourlyForecast]) -> str:
+    if not forecasts: return "<p>Không có dữ liệu hiển thị.</p>"
+
+    days_map: Dict[str, List[HourlyForecast]] = {}
+    viet_days = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"]
+    for fc in forecasts:
+        dt = datetime.fromisoformat(fc.forecast_time.replace("Z", ""))
+        day_label = f"{viet_days[dt.weekday()]}, {dt.strftime('%d/%m')}"
+        days_map.setdefault(day_label, []).append(fc)
+
+    header_days = ['<th class="sticky-col row-title">Ngày trong tuần</th>']
+    for day_label, items in days_map.items():
+        header_days.append(f'<th colspan="{len(items)}" class="day-header">{html.escape(day_label)}</th>')
+
+    row_hours = ['<td class="sticky-col row-title">Giờ địa phương</td>']
+    row_icons = ['<td class="sticky-col row-title">Hiện tượng</td>']
+    row_pop = ['<td class="sticky-col row-title"><b>PoP Hiệu chỉnh (%)</b></td>']
+    row_thunder = ['<td class="sticky-col row-title">Nguy cơ Dông (%)</td>']
+    row_rain = ['<td class="sticky-col row-title">Lượng mưa (mm)</td>']
+    row_temp = ['<td class="sticky-col row-title">Nhiệt độ (°C)</td>']
+    row_cloud = ['<td class="sticky-col row-title">Mây tổng / Thấp (%)</td>']
+    row_wind = ['<td class="sticky-col row-title">Gió / Giật (km/h)</td>']
+    row_rh = ['<td class="sticky-col row-title">Độ ẩm 2m / 850hPa</td>']
+    row_vis = ['<td class="sticky-col row-title">Tầm nhìn (km)</td>']
+    row_press = ['<td class="sticky-col row-title">Áp suất (hPa)</td>']
+
+    for fc in forecasts:
+        dt = datetime.fromisoformat(fc.forecast_time.replace("Z", ""))
+        rain_val = max(fc.precipitation, fc.rain, fc.showers)
+        wind_dir = wind_deg_to_dir(fc.wind_direction_10m)
+
+        row_hours.append(f'<td class="hour-cell">{dt.strftime("%H:%M")}</td>')
+        row_icons.append(f'<td style="font-size: 18px;">{get_weather_icon(fc)}</td>')
+        row_pop.append(f'<td style="background:{get_pop_bg(fc.pop_calibrated)}">{fc.pop_calibrated:.0f}%</td>')
+        row_thunder.append(f'<td style="background:{get_pop_bg(fc.thunder_probability)}">{fc.thunder_probability:.0f}%</td>')
+        row_rain.append(f'<td><b>{rain_val:.1f}</b></td>' if rain_val > 0 else '<td style="color:#94a3b8;">0.0</td>')
+        row_temp.append(f'<td style="background:{get_temp_bg(fc.temperature_2m)}"><b>+{fc.temperature_2m:.0f}</b></td>')
+        row_cloud.append(f'<td>{fc.cloud_cover:.0f}% <span style="color:#64748b;font-size:11px;">({fc.cloud_cover_low:.0f}%)</span></td>')
+        row_wind.append(f'<td>{wind_dir} {fc.wind_speed_10m:.0f} <span style="color:#ef4444;font-size:11px;">({fc.wind_gusts_10m:.0f})</span></td>')
+        row_rh.append(f'<td>{fc.relative_humidity_2m:.0f}% / <b>{fc.relative_humidity_850hPa:.0f}%</b></td>')
+        row_vis.append(f'<td>{fc.visibility_m/1000:.1f}</td>')
+        row_press.append(f'<td>{fc.surface_pressure:.0f}</td>')
+
+    table_html = f"""
+    <style>
+        .rp5-container {{ width: 100%; overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 8px; background: #ffffff; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }}
+        .rp5-table {{ border-collapse: collapse; width: max-content; font-family: Arial, sans-serif; font-size: 13px; text-align: center; }}
+        .rp5-table th, .rp5-table td {{ border: 1px solid #e2e8f0; padding: 6px 10px; white-space: nowrap; }}
+        .sticky-col {{ position: sticky; left: 0; background-color: #f1f5f9 !important; z-index: 2; text-align: left !important; font-weight: 600; color: #1e293b; border-right: 2px solid #94a3b8 !important; }}
+        .day-header {{ background-color: #1e3a8a; color: white; font-size: 13px; padding: 8px; }}
+        .hour-cell {{ background-color: #f8fafc; font-weight: bold; color: #334155; }}
+    </style>
+    <div class="rp5-container">
+        <table class="rp5-table">
+            <thead><tr>{''.join(header_days)}</tr></thead>
+            <tbody>
+                <tr>{''.join(row_hours)}</tr>
+                <tr>{''.join(row_icons)}</tr>
+                <tr>{''.join(row_pop)}</tr>
+                <tr>{''.join(row_thunder)}</tr>
+                <tr>{''.join(row_rain)}</tr>
+                <tr>{''.join(row_temp)}</tr>
+                <tr>{''.join(row_cloud)}</tr>
+                <tr>{''.join(row_wind)}</tr>
+                <tr>{''.join(row_rh)}</tr>
+                <tr>{''.join(row_vis)}</tr>
+                <tr>{''.join(row_press)}</tr>
+            </tbody>
+        </table>
+    </div>
+    """
+    return table_html
+
+# =========================
+# 4. GIAO DIỆN CHÍNH STREAMLIT
+# =========================
+
+st.set_page_config(page_title="Thời tiết Thọ Xuân (VVTX)", page_icon="🌤️", layout="wide")
+
+st.markdown("""
+<style>
+    .main { background-color: #f4f6f9; }
+    .summary-box { background-color: #ffffff; border-left: 5px solid #1e3a8a; padding: 15px 20px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 18px; font-size: 15px; line-height: 1.6; }
+    .stButton>button { border-radius: 6px; font-weight: 600; }
+</style>
+""", unsafe_allow_html=True)
+
+# Sidebar quản lý phiên làm việc
+st.sidebar.markdown("### 👤 Tài khoản Quản trị")
+st.sidebar.success("Đang đăng nhập: **admin**")
+if st.sidebar.button("🚪 Đăng xuất", use_container_width=True):
+    st.session_state["logged_in"] = False
+    st.rerun()
+
+st.sidebar.markdown("---")
+days_to_show = st.sidebar.selectbox("Phạm vi dự báo xem trước:", [2, 3, 5, 7], index=1, format_func=lambda x: f"{x} ngày tới")
+
+@st.cache_data(ttl=1800)
+def load_data():
+    raw = fetch_open_meteo()
+    forecasts = parse_forecasts(raw)
+    processed = process_forecast_models(forecasts)
+    return processed
+
+with st.spinner("Đang đồng bộ dữ liệu khí tượng tại Sân bay Thọ Xuân (VVTX)..."):
+    try:
+        forecasts = load_data()
+    except Exception as e:
+        st.error(f"Lỗi kết nối dữ liệu: {e}")
+        st.stop()
+
+now = datetime.now(ZoneInfo(TIMEZONE)).replace(minute=0, second=0, microsecond=0, tzinfo=None)
+future_forecasts = [fc for fc in forecasts if datetime.fromisoformat(fc.forecast_time.replace("Z", "")) >= now]
+
+if not future_forecasts:
+    st.warning("Không có dữ liệu dự báo khả dụng.")
+    st.stop()
+
+# Header & Nút cập nhật kèm cơ chế so sánh
+col_title, col_btn = st.columns([4, 1])
+with col_title:
+    st.title(f"🌤️ Thời tiết tại {AIRPORT_NAME}")
+    st.caption(f"Tọa độ: {LATITUDE}°N, {LONGITUDE}°E · Cập nhật lúc: {datetime.now(ZoneInfo(TIMEZONE)).strftime('%H:%M %d/%m/%Y')}")
+with col_btn:
+    st.write("")
+    if st.button("🔄 Cập nhật mới", use_container_width=True):
+        # 1. Lưu bản dữ liệu cũ trước khi xóa cache
+        old_data = future_forecasts
+        
+        # 2. Xóa cache để ép tải mới
+        st.cache_data.clear()
+        
+        # 3. Tải dữ liệu mới
+        try:
+            new_raw = fetch_open_meteo()
+            new_parsed = parse_forecasts(new_raw)
+            new_forecasts = process_forecast_models(new_parsed)
+            new_future = [fc for fc in new_forecasts if datetime.fromisoformat(fc.forecast_time.replace("Z", "")) >= now]
+            
+            # 4. So sánh sự thay đổi trong 24h tới
+            if old_data and new_future:
+                old_max_pop = max([f.pop_calibrated for f in old_data[:24]])
+                new_max_pop = max([f.pop_calibrated for f in new_future[:24]])
+                
+                old_max_t = max([f.temperature_2m for f in old_data[:24]])
+                new_max_t = max([f.temperature_2m for f in new_future[:24]])
+                
+                changes = []
+                pop_diff = new_max_pop - old_max_pop
+                if abs(pop_diff) >= 3:
+                    direction = "tăng" if pop_diff > 0 else "giảm"
+                    changes.append(f"Xác suất mưa đỉnh điểm **{direction} {abs(pop_diff):.0f}%** (từ {old_max_pop:.0f}% lên {new_max_pop:.0f}%)")
+                
+                t_diff = new_max_t - old_max_t
+                if abs(t_diff) >= 0.5:
+                    direction = "tăng" if t_diff > 0 else "giảm"
+                    changes.append(f"Nhiệt độ cao nhất **{direction} {abs(t_diff):.1f}°C** (từ {old_max_t:.1f}°C lên {new_max_t:.1f}°C)")
+                
+                if changes:
+                    st.session_state["change_notification"] = "⚡ **Biến động dự báo so với lần trước:** " + " | ".join(changes)
+                else:
+                    st.session_state["change_notification"] = "ℹ️ Dữ liệu vừa cập nhật khớp hoàn toàn với bản tin trước, không có biến động lớn."
+        except Exception as e:
+            st.session_state["change_notification"] = f"⚠️ Không thể làm mới dữ liệu: {e}"
+            
+        st.rerun()
+
+# Hiển thị thông báo thay đổi nếu có
+if st.session_state["change_notification"]:
+    st.info(st.session_state["change_notification"])
+    # Xóa thông báo sau khi hiển thị để không bị lặp lại mãi mãi
+    st.session_state["change_notification"] = None
+
+# Hộp tóm tắt diễn biến văn bản
+curr = future_forecasts[0]
+next_24h = future_forecasts[:24]
+min_t = min(f.temperature_2m for f in next_24h)
+max_t = max(f.temperature_2m for f in next_24h)
+max_pop = max(f.pop_calibrated for f in next_24h)
+rain_desc = "có khả năng xuất hiện mưa rào/dông" if max_pop >= 50 else ("có thể có mưa nhỏ vài nơi" if max_pop >= 30 else "thời tiết khô ráo, không mưa")
+
+st.markdown(f"""
+<div class="summary-box">
+    <b>Hiện tại ({curr.forecast_time.split('T')[1]}):</b> Nhiệt độ <b>+{curr.temperature_2m:.1f} °C</b>, độ ẩm <b>{curr.relative_humidity_2m:.0f}%</b>, gió {wind_deg_to_dir(curr.wind_direction_10m)} {curr.wind_speed_10m:.0f} km/h, tầm nhìn {curr.visibility_m/1000:.1f} km.<br>
+    <b>Dự báo 24 giờ tới:</b> Nhiệt độ dao động từ <b>+{min_t:.0f}..+{max_t:.0f} °C</b>, {rain_desc} (Xác suất mưa hiệu chỉnh cao nhất: <b>{max_pop:.0f}%</b>).
+</div>
+""", unsafe_allow_html=True)
+
+# Lọc dữ liệu theo số ngày đã chọn (Bước chuẩn 1 giờ)
+filtered = future_forecasts[:days_to_show * 24]
+
+# 1. Hiển thị Bảng ngang phong cách rp5.ru (Bước 1 giờ)
+st.markdown("### 📅 Bảng dự báo chi tiết từng giờ (Kéo ngang để xem)")
+st.markdown(render_rp5_horizontal_table(filtered), unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# 2. HỆ THỐNG BIỂU ĐỒ TRỰC QUAN ĐA TẦNG
+st.markdown("### 📈 Biểu đồ Phân tích Khí tượng Trực quan")
+
+chart_data = pd.DataFrame([
+    {
+        "Thời gian": fc.forecast_time.replace("T", " "),
+        "PoP Hiệu chỉnh (%)": fc.pop_calibrated,
+        "Nguy cơ Dông (%)": fc.thunder_probability,
+        "Nhiệt độ (°C)": fc.temperature_2m,
+        "Lượng mưa (mm)": max(fc.precipitation, fc.rain, fc.showers),
+        "Tầm nhìn (km)": fc.visibility_m / 1000.0,
+        "Độ ẩm 850hPa (%)": fc.relative_humidity_850hPa
+    } for fc in filtered
+])
+
+# Biểu đồ 1: Xác suất Mưa & Dông
+fig_pop = px.line(chart_data, x="Thời gian", y=["PoP Hiệu chỉnh (%)", "Nguy cơ Dông (%)"], 
+                  markers=True, title="Xác suất Mưa (PoP) và Nguy cơ Dông (%)")
+fig_pop.update_layout(hovermode="x unified", height=320, margin=dict(l=10, r=10, t=30, b=10))
+st.plotly_chart(fig_pop, use_container_width=True)
+
+# Biểu đồ 2: Nhiệt độ & Lượng mưa
+fig_combo = make_subplots(specs=[[{"secondary_y": True}]])
+fig_combo.add_trace(
+    go.Scatter(x=chart_data["Thời gian"], y=chart_data["Nhiệt độ (°C)"], name="Nhiệt độ (°C)", line=dict(color="#f97316", width=2)),
+    secondary_y=False,
+)
+fig_combo.add_trace(
+    go.Bar(x=chart_data["Thời gian"], y=chart_data["Lượng mưa (mm)"], name="Lượng mưa (mm)", marker_color="#3b82f6", opacity=0.7),
+    secondary_y=True,
+)
+fig_combo.update_layout(title="Diễn biến Nhiệt độ bề mặt và Lượng mưa dự báo", hovermode="x unified", height=320, margin=dict(l=10, r=10, t=30, b=10))
+fig_combo.update_yaxes(title_text="Nhiệt độ (°C)", secondary_y=False)
+fig_combo.update_yaxes(title_text="Lượng mưa (mm)", secondary_y=True)
+st.plotly_chart(fig_combo, use_container_width=True)
+
+# Biểu đồ 3: Tầm nhìn & Độ ẩm tầng 850hPa
+col_c1, col_c2 = st.columns(2)
+with col_c1:
+    fig_vis = px.area(chart_data, x="Thời gian", y="Tầm nhìn (km)", title="Dự báo Tầm nhìn hiệu chỉnh (km)")
+    fig_vis.update_layout(height=280, margin=dict(l=10, r=10, t=30, b=10))
+    st.plotly_chart(fig_vis, use_container_width=True)
+with col_c2:
+    fig_rh = px.line(chart_data, x="Thời gian", y="Độ ẩm 850hPa (%)", title="Độ ẩm tầng đối lưu 850hPa (%)", color_discrete_sequence=["#10b981"])
+    fig_rh.update_layout(height=280, margin=dict(l=10, r=10, t=30, b=10))
+    st.plotly_chart(fig_rh, use_container_width=True)
