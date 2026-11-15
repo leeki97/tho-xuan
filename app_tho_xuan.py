@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - TÍCH HỢP HỆ THỐNG THỜI TIẾT CHI PHỐI
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - TÍCH HỢP XU THẾ SYNOPTIC 10 NGÀY
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import math
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -50,7 +50,7 @@ AIRPORT_DATABASE = {
 }
 
 TIMEZONE = "Asia/Bangkok"
-FORECAST_DAYS = 7
+FORECAST_DAYS = 10  # Mở rộng 10 ngày
 REQUEST_TIMEOUT = 60
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 
@@ -109,29 +109,70 @@ if not st.session_state["logged_in"]:
 
 
 # =========================
-# 2. HÀM PHÂN TÍCH HỆ THỐNG THỜI TIẾT CHI PHỐI (SYNOPTIC)
+# 2. HÀM PHÂN TÍCH XU THẾ SYNOPTIC 10 NGÀY
 # =========================
 
-def get_regional_synoptic_summary(lat: float) -> str:
-    """Tự động xác định hệ thống thời tiết chi phối dựa theo vĩ độ sân bay"""
+def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float) -> str:
+    """Tự động phân tích xu thế hình thế thời tiết 10 ngày tới từ chuỗi dữ liệu dự báo"""
+    if not forecasts:
+        return "Đang cập nhật dữ liệu xu thế..."
+
+    # Phân nhóm dữ liệu theo ngày
+    daily_summary = {}
+    for fc in forecasts:
+        dt = datetime.fromisoformat(fc.forecast_time.replace("Z", ""))
+        day_str = dt.strftime("%d/%m")
+        daily_summary.setdefault(day_str, {"temps": [], "pops": [], "rains": [], "winds": []})
+        daily_summary[day_str]["temps"].append(fc.temperature_2m)
+        daily_summary[day_str]["pops"].append(fc.pop_calibrated)
+        daily_summary[day_str]["rains"].append(max(fc.precipitation, fc.rain, fc.showers))
+        daily_summary[day_str]["winds"].append(fc.wind_speed_10m)
+
+    # Đánh giá tổng quan xu thế
+    trend_notes = []
+    days_list = list(daily_summary.keys())
+    
+    # Nhận định theo miền
+    region_desc = ""
     if lat >= 18.5:
-        return (
-            "<b>Khu vực Bắc Bộ & Bắc Trung Bộ:</b> Đang chịu chi phối của rìa Tây Nam áp cao lạnh lục địa suy yếu "
-            "kết hợp trường gió nhẹ. Sáng sớm có sương mù và sương mù nhẹ; ban ngày nắng ráo, nhiệt độ xu hướng tăng. "
-            "<i>Lưu ý: Theo dõi các đợt không khí lạnh tăng cường sắp tới có khả năng gây chuyển gió Đông Bắc và mưa dông diện rộng.</i>"
-        )
+        region_desc = "Khu vực Bắc Bộ & Bắc Trung Bộ: "
     elif 13.0 <= lat < 18.5:
-        return (
-            "<b>Khu vực Trung Trung Bộ:</b> Vùng chuyển tiếp chịu ảnh hưởng của không khí lạnh suy yếu kết hợp "
-            "với địa hình chắn gió dãy Trường Sơn và nhiễu động đới gió Đông. Thời tiết tạnh ráo, có nắng gián đoạn, "
-            "cần lưu ý mây thấp và mưa rào cục bộ về đêm."
-        )
+        region_desc = "Khu vực Trung Trung Bộ: "
     else:
-        return (
-            "<b>Khu vực Nam Bộ, Tây Nguyên & Nam Trung Bộ:</b> Chịu tác động chủ đạo của rìa phía Nam hệ thống áp cao "
-            "và dòng thăng giáng nội chí tuyến/gió mùa Đông Bắc cường độ trung bình. Ban ngày nắng nhiều, "
-            "chiều tối và đêm xuất hiện mưa rào và dông vài nơi."
-        )
+        region_desc = "Khu vực Nam Bộ & Tây Nguyên: "
+
+    # Quét tìm các ngày có mưa lớn hoặc biến động nhiệt
+    rainy_days = []
+    max_overall_temp = -99
+    min_overall_temp = 99
+
+    for day, metrics in daily_summary.items():
+        avg_t = sum(metrics["temps"]) / len(metrics["temps"])
+        max_t = max(metrics["temps"])
+        min_t = min(metrics["temps"])
+        max_pop = max(metrics["pops"])
+        total_rain = sum(metrics["rains"])
+
+        max_overall_temp = max(max_overall_temp, max_t)
+        min_overall_temp = min(min_overall_temp, min_t)
+
+        if max_pop >= 50 or total_rain >= 2.0:
+            rainy_days.append(day)
+
+    outlook = f"<b>{region_desc}</b> Biên độ nhiệt độ trong 10 ngày tới dao động từ <b>+{min_overall_temp:.0f}°C đến +{max_overall_temp:.0f}°C</b>. "
+    if rainy_days:
+        outlook += f"Các mốc thời gian cần lưu ý có khả năng xuất hiện mưa rào/dông rải rác tập trung vào các ngày: <b>{', '.join(rainy_days[:4])}</b>. "
+    else:
+        outlook += "Nhìn chung 10 ngày tới thời tiết chủ đạo ít mưa, trời hanh khô hoặc nắng ráo thuận lợi cho hoạt động bay. "
+
+    if lat >= 18.5:
+        outlook += "Đề phòng các đợt không khí lạnh tăng cường có xu hướng lệch đông gây nhiều mây và giảm nhiệt vào cuối chu kỳ dự báo."
+    elif 13.0 <= lat < 18.5:
+        outlook += "Duy trì hình thế gió Đông kết hợp địa hình, cần chú ý hiện tượng mây thấp và tầm nhìn hạn chế vào sáng sớm."
+    else:
+        outlook += "Thời tiết ổn định, mưa tập trung chủ yếu về chiều tối ở diện cục bộ."
+
+    return outlook
 
 
 # =========================
@@ -543,7 +584,7 @@ LONGITUDE = AIRPORT_DATABASE[selected_airport_name]["lon"]
 
 st.sidebar.markdown("---")
 days_to_show = st.sidebar.selectbox(
-    "Phạm vi dự báo xem trước:", [2, 3, 5, 7], index=1, format_func=lambda x: f"{x} ngày tới"
+    "Phạm vi dự báo xem trước:", [2, 3, 5, 7, 10], index=1, format_func=lambda x: f"{x} ngày tới"
 )
 
 wind_unit_label = st.sidebar.selectbox(
@@ -561,7 +602,7 @@ def load_data(lat: float, lon: float, w_unit: str):
     return processed
 
 
-with st.spinner(f"Đang đồng bộ dữ liệu khí tượng tại {selected_airport_name}..."):
+with st.spinner(f"Đang đồng bộ dữ liệu khí tượng 10 ngày tại {selected_airport_name}..."):
     try:
         forecasts = load_data(LATITUDE, LONGITUDE, wind_unit_param)
     except Exception as e:
@@ -661,12 +702,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Khung hệ thống thời tiết synoptic chi phối
-synoptic_html = get_regional_synoptic_summary(LATITUDE)
+# Khung xu thế synoptic và hình thế 10 ngày tới
+synoptic_10day_text = generate_10_day_synoptic_outlook(future_forecasts[:240], LATITUDE)
 st.markdown(
     f"""
 <div class="synoptic-box">
-    🌐 <b>Hệ thống thời tiết chi phối:</b> {synoptic_html}
+    🌐 <b>Xu thế hình thế thời tiết 10 ngày tới:</b> {synoptic_10day_text}
 </div>
 """,
     unsafe_allow_html=True,
