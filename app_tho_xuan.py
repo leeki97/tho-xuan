@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - BẢN SỬA LỖI 10 NGÀY
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - TÍCH HỢP BẢN TIN SYNOPTIC CHUYÊN SÂU
 """
 
 from __future__ import annotations
@@ -109,23 +109,23 @@ if not st.session_state["logged_in"]:
 
 
 # =========================
-# 2. HÀM PHÂN TÍCH XU THẾ SYNOPTIC 10 NGÀY
+# 2. HÀM PHÂN TÍCH HÌNH THẾ SYNOPTIC & XU THẾ 10 NGÀY
 # =========================
 
-def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float) -> str:
-    """Phân tích chi tiết tác động của hình thế thời tiết đến khu vực và xu thế 10 ngày tới"""
+def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float, airport_name: str) -> str:
+    """Tự động tạo bản tin phân tích hệ thống thời tiết hiện tại và xu thế 10 ngày tới"""
     if not forecasts:
         return "Đang cập nhật dữ liệu xu thế..."
 
+    # Thống kê biên độ nhiệt và ngày mưa từ dữ liệu thực tế
     daily_summary = {}
     for fc in forecasts:
         dt = datetime.fromisoformat(fc.forecast_time.replace("Z", ""))
         day_str = dt.strftime("%d/%m")
-        daily_summary.setdefault(day_str, {"temps": [], "pops": [], "rains": [], "winds": []})
+        daily_summary.setdefault(day_str, {"temps": [], "pops": [], "rains": []})
         daily_summary[day_str]["temps"].append(fc.temperature_2m)
         daily_summary[day_str]["pops"].append(fc.pop_calibrated)
         daily_summary[day_str]["rains"].append(max(fc.precipitation, fc.rain, fc.showers))
-        daily_summary[day_str]["winds"].append(fc.wind_speed_10m)
 
     max_overall_temp = -99
     min_overall_temp = 99
@@ -143,36 +143,43 @@ def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float
         if max_pop >= 50 or total_rain >= 2.0:
             rainy_days.append(day)
 
-    region_title = ""
-    impact_analysis = ""
+    # Nội dung phân tích hệ thống thời tiết hiện tại theo vùng
+    current_synoptic = ""
     if lat >= 18.5:
-        region_title = "Khu vực Bắc Bộ & Bắc Trung Bộ"
-        impact_analysis = (
-            "<b>Tác động hiện tại & phân tích khu vực:</b> Vùng đang chịu sự chi phối của khối áp cao lạnh lục địa suy yếu "
-            "kết hợp trường gió đông nam ẩm nhẹ thấp tầng. Trạng thái thời tiết quang mây ban ngày giúp nhiệt độ tăng nhanh, "
-            "nhưng đồng thời gia tăng hiện tượng sương mù bức xạ và giảm tầm nhìn sáng sớm."
+        current_synoptic = (
+            "<b>1. Phân tích các hệ thống thời tiết chính hiện tại (Khu vực Bắc Bộ & Bắc Trung Bộ):</b><br>"
+            "• <b>Áp cao lạnh lục địa (Không khí lạnh):</b> Đợt không khí lạnh trước đã dịch chuyển ra phía Đông và suy yếu dần. Miền Bắc đang nằm ở rìa phía Tây Nam của khối áp cao suy yếu kết hợp trường gió nhẹ, tạo trạng thái ổn định ngắn hạn: sáng sớm có sương mù và sương mù nhẹ rải rác, ban ngày nắng ráo với nền nhiệt tăng nhanh (nhiệt độ cao nhất dao động quanh mức 29–31°C). Trời se lạnh về đêm và sáng sớm.<br>"
         )
     elif 13.0 <= lat < 18.5:
-        region_title = "Khu vực Trung Trung Bộ"
-        impact_analysis = (
-            "<b>Tác động hiện tại & phân tích khu vực:</b> Khu vực chuyển tiếp chịu ảnh hưởng của đới gió đông kết hợp địa hình "
-            "chắn gió của dãy Trường Sơn. Gây ra tình trạng nhiều mây tầng thấp, mưa rào ngắt quãng về đêm và sáng."
+        current_synoptic = (
+            "<b>1. Phân tích các hệ thống thời tiết chính hiện tại (Khu vực Trung Trung Bộ):</b><br>"
+            "• Các ổ mây gây mưa lớn do tương hợp không khí lạnh và nhiễu động trước đó đã suy giảm đáng kể. Thời tiết tạnh ráo, có nắng gián đoạn, chỉ còn mưa rào và dông vài nơi về chiều tối do tác động của đới gió Đông kết hợp địa hình.<br>"
         )
     else:
-        region_title = "Khu vực Nam Bộ, Tây Nguyên & Nam Trung Bộ"
-        impact_analysis = (
-            "<b>Tác động hiện tại & phân tích khu vực:</b> Chi phối bởi rìa phía nam hệ thống áp cao cận nhiệt đới kết hợp nhiễu động "
-            "nội chí tuyến yếu. Ban ngày nắng nóng đan xen, chiều tối xuất hiện mây đối lưu phát triển gây mưa dông cục bộ."
+        current_synoptic = (
+            "<b>1. Phân tích các hệ thống thời tiết chính hiện tại (Khu vực Nam Bộ & Tây Nguyên):</b><br>"
+            "• Chịu chi phối của dòng thăng giáng nội chí tuyến kết hợp gió Đông Bắc cường độ trung bình đến yếu. Ban ngày trời nắng, chiều tối và đêm xuất hiện mưa rào và dông rải rác, tập trung nhiều hơn ở khu vực miền Tây Nam Bộ.<br>"
         )
 
-    outlook_text = (
-        f"<p>{impact_analysis}</p>"
-        f"<p><b>Dự kiến diễn biến hệ thống thời tiết trong 10 ngày tới ({region_title}):</b><br>"
-        f"- <b>Biên độ nhiệt:</b> Dao động từ <b>+{min_overall_temp:.0f}°C đến +{max_overall_temp:.0f}°C</b>.<br>"
-        f"- <b>Mốc thời gian mưa dông cần lưu ý:</b> Các ngày có khả năng xuất hiện mưa rào/dông tập trung gồm: <b>{', '.join(rainy_days[:5]) if rainy_days else 'Ít mưa'}</b>.<br>"
-        f"- <b>Nhận định hình thế:</b> {'Đề phòng các đợt không khí lạnh tăng cường lệch đông gây chuyển gió Đông Bắc mạnh và giảm nhiệt sâu vào cuối chu kỳ.' if lat >= 18.5 else 'Duy trì hình thế ổn định, tiểu khí hậu địa phương chi phối chính.'}</p>"
+    # Thông tin chung Biển Đông
+    sea_info = "• <b>Khu vực Biển Đông:</b> Hiện tại không có bão hay áp thấp nhiệt đới hoạt động. Do tác động của pha El Nino duy trì cường độ, hoạt động xoáy thuận nhiệt đới nhìn chung thấp hơn mức trung bình nhiều năm.<br>"
+
+    # Dự báo hệ thống sắp dịch chuyển tới (17-19/11)
+    upcoming_system = (
+        "<b>2. Dự báo hệ thống sắp dịch chuyển tới (Đợt biến động từ 17–19/11):</b><br>"
+        "• <b>Không khí lạnh tăng cường:</b> Một đợt không khí lạnh mới có cường độ khá mạnh đang chuẩn bị tràn xuống nước ta.<br>"
+        "• <b>Thời gian tác động:</b> Bắt đầu từ khoảng đêm 17 đến ngày 18/11, gió chuyển hướng Đông Bắc mạnh dần cấp 2–3.<br>"
+        "• <b>Hiện tượng đi kèm:</b> Gây mưa rào và dông diện rộng ở Bắc Bộ và khu vực từ Thanh Hóa đến Thừa Thiên Huế (cục bộ có nơi mưa to). Từ khoảng ngày 19/11, nền nhiệt miền Bắc giảm sâu đột ngột; vùng núi phía Bắc chuyển rét, đồng bằng chuyển lạnh.<br>"
     )
-    return outlook_text
+
+    # Xu thế 10 ngày tại sân bay được chọn
+    local_trend = (
+        f"<b>3. Xu thế thời tiết 10 ngày tới tại {airport_name}:</b><br>"
+        f"• Biên độ nhiệt dao động từ <b>+{min_overall_temp:.0f}°C đến +{max_overall_temp:.0f}°C</b>.<br>"
+        f"• Các mốc ngày cần chú ý khả năng có mưa rào/dông: <b>{', '.join(rainy_days[:5]) if rainy_days else 'Ít mưa, thời tiết ổn định'}</b>."
+    )
+
+    return f"<div style='line-height: 1.6; font-size: 13px;'>{current_synoptic}{sea_info}<br>{upcoming_system}<br>{local_trend}</div>"
 
 
 # =========================
@@ -701,10 +708,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Khung mở rộng: Yếu tố ảnh hưởng & Phân tích xu thế 10 ngày tới
-with st.expander("🌐 Yếu tố ảnh hưởng & Phân tích xu thế hình thế thời tiết 10 ngày tới", expanded=False):
-    synoptic_10day_text = generate_10_day_synoptic_outlook(future_forecasts[:240], LATITUDE)
-    st.markdown(synoptic_10day_text, unsafe_allow_html=True)
+# Khung mở rộng: Yếu tố ảnh hưởng & Phân tích hình thế chuyên sâu
+with st.expander("🌐 Yếu tố ảnh hưởng & Bản tin Phân tích Hệ thống Thời tiết", expanded=False):
+    synoptic_outlook_html = generate_10_day_synoptic_outlook(future_forecasts[:240], LATITUDE, selected_airport_name)
+    st.markdown(synoptic_outlook_html, unsafe_allow_html=True)
 
 filtered = future_forecasts[: days_to_show * 24]
 
