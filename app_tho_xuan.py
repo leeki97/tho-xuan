@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - TÍCH HỢP KHUNG MỞ RỘNG YẾU TỐ ẢNH HƯỞNG
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - BẢN SỬA LỖI 10 NGÀY
 """
 
 from __future__ import annotations
@@ -169,7 +169,7 @@ def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float
         f"<p>{impact_analysis}</p>"
         f"<p><b>Dự kiến diễn biến hệ thống thời tiết trong 10 ngày tới ({region_title}):</b><br>"
         f"- <b>Biên độ nhiệt:</b> Dao động từ <b>+{min_overall_temp:.0f}°C đến +{max_overall_temp:.0f}°C</b>.<br>"
-        f"- <b>Mốc thời gian mưa dông cần lưu ý:</b> Các ngày có khả năng xuất hiện mưa rào/dông tập trung gồm: <b>{', '.join(rainy_days[:5]) if rainy_days.size else 'Ít mưa'}</b>.<br>"
+        f"- <b>Mốc thời gian mưa dông cần lưu ý:</b> Các ngày có khả năng xuất hiện mưa rào/dông tập trung gồm: <b>{', '.join(rainy_days[:5]) if rainy_days else 'Ít mưa'}</b>.<br>"
         f"- <b>Nhận định hình thế:</b> {'Đề phòng các đợt không khí lạnh tăng cường lệch đông gây chuyển gió Đông Bắc mạnh và giảm nhiệt sâu vào cuối chu kỳ.' if lat >= 18.5 else 'Duy trì hình thế ổn định, tiểu khí hậu địa phương chi phối chính.'}</p>"
     )
     return outlook_text
