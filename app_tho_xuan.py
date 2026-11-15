@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - TÁCH SỐ LIỆU & TỐI ƯU CẢM ỨNG BIỂU ĐỒ
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - TÁCH RIÊNG TỪNG BIỂU ĐỒ SỐ LIỆU
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import requests
 import streamlit as st
 
@@ -642,167 +641,92 @@ st.markdown(render_rp5_horizontal_table(filtered, wind_unit_text), unsafe_allow_
 st.markdown("<br>", unsafe_allow_html=True)
 
 # =========================
-# 5. BIỂU ĐỒ PHÂN TÍCH KHÍ TƯỢNG (TÁCH RỜI & TỐI ƯU CẢM ỨNG ZOOM/PAN)
+# 5. BIỂU ĐỒ PHÂN TÍCH KHÍ TƯỢNG (TÁCH RIÊNG TỪNG SỐ LIỆU ĐỘC LẬP)
 # =========================
 
-st.markdown("### 📈 Biểu đồ Phân tích Khí tượng Trực quan")
-st.caption("💡 Mẹo trên điện thoại: Dùng 2 ngón tay để phóng to/thu nhỏ (pinch-to-zoom) hoặc trượt sang trái/phải để xem chi tiết biểu đồ.")
+st.markdown("### 📈 Biểu đồ Phân tích Chi tiết Từng Số liệu")
+st.caption("💡 Mẹo trên điện thoại: Dùng 2 ngón tay để phóng to/thu nhỏ (pinch-to-zoom) hoặc trượt sang trái/phải để xem chi tiết từng biểu đồ.")
 
 chart_data = pd.DataFrame(
     [
         {
             "Thời gian": fc.forecast_time.replace("T", " "),
+            "Nhiệt độ 2m (°C)": fc.temperature_2m,
+            "Điểm sương (°C)": fc.dew_point_2m,
             "PoP Hiệu chỉnh (%)": fc.pop_calibrated,
             "Nguy cơ Dông (%)": fc.thunder_probability,
             "Lượng mưa (mm)": max(fc.precipitation, fc.rain, fc.showers),
-            "Nhiệt độ (°C)": fc.temperature_2m,
-            "Điểm sương (°C)": fc.dew_point_2m,
-            "Tầm nhìn (km)": round(fc.visibility_m / 1000.0, 1),
-            "Độ ẩm 2m (%)": fc.relative_humidity_2m,
             f"Tốc độ gió ({wind_unit_text})": fc.wind_speed_10m,
             f"Gió giật ({wind_unit_text})": fc.wind_gusts_10m,
+            "Độ ẩm 2m (%)": fc.relative_humidity_2m,
+            "Độ ẩm 850hPa (%)": fc.relative_humidity_850hPa,
+            "Tầm nhìn (km)": round(fc.visibility_m / 1000.0, 1),
+            "Áp suất (hPa)": fc.surface_pressure,
         }
         for fc in filtered
     ]
 )
 
-# Cấu hình cảm ứng đa điểm & phóng to cho biểu đồ Plotly trên di động
-touch_config = {
-    "scrollZoom": True,
-    "displayModeBar": True,
-    "responsive": True,
-}
+touch_config = {"scrollZoom": True, "displayModeBar": True, "responsive": True}
 
-# 1. Biểu đồ Xác suất Mưa & Dông
-st.markdown("#### 🌧️ Xác suất Mưa & Dông")
-fig1 = make_subplots(specs=[[{"secondary_y": True}]])
-fig1.add_trace(
-    go.Bar(
-        x=chart_data["Thời gian"],
-        y=chart_data["Lượng mưa (mm)"],
-        name="Lượng mưa (mm)",
-        marker_color="rgba(59, 130, 246, 0.45)",
-    ),
-    secondary_y=True,
-)
-fig1.add_trace(
-    go.Scatter(
-        x=chart_data["Thời gian"],
-        y=chart_data["PoP Hiệu chỉnh (%)"],
-        name="PoP Hiệu chỉnh (%)",
-        mode="lines+markers",
-        line=dict(color="#1d4ed8", width=2.5),
-    ),
-    secondary_y=False,
-)
-fig1.add_trace(
-    go.Scatter(
-        x=chart_data["Thời gian"],
-        y=chart_data["Nguy cơ Dông (%)"],
-        name="Nguy cơ Dông (%)",
-        mode="lines",
-        line=dict(color="#dc2626", width=2, dash="dot"),
-    ),
-    secondary_y=False,
-)
-fig1.update_layout(
-    height=360,
-    margin=dict(l=10, r=10, t=30, b=10),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    hovermode="x unified",
-)
-fig1.update_yaxes(title_text="Xác suất (%)", range=[0, 105], secondary_y=False)
-fig1.update_yaxes(title_text="Lượng mưa (mm)", secondary_y=True)
+# 1. Nhiệt độ & Điểm sương
+st.markdown("#### 🌡️ 1. Nhiệt độ & Điểm sương")
+fig1 = go.Figure()
+fig1.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data["Nhiệt độ 2m (°C)"], name="Nhiệt độ (°C)", mode="lines+markers", line=dict(color="#ea580c", width=2.5)))
+fig1.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data["Điểm sương (°C)"], name="Điểm sương (°C)", mode="lines", line=dict(color="#0d9488", width=1.8, dash="dash")))
+fig1.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
 st.plotly_chart(fig1, use_container_width=True, config=touch_config)
-
 st.markdown("<br>", unsafe_allow_html=True)
 
-# 2. Biểu đồ Nhiệt độ & Tầm nhìn
-st.markdown("#### 🌡️ Nhiệt độ & Tầm nhìn")
-fig2 = make_subplots(specs=[[{"secondary_y": True}]])
-fig2.add_trace(
-    go.Scatter(
-        x=chart_data["Thời gian"],
-        y=chart_data["Nhiệt độ (°C)"],
-        name="Nhiệt độ (°C)",
-        mode="lines+markers",
-        line=dict(color="#ea580c", width=2.5),
-    ),
-    secondary_y=False,
-)
-fig2.add_trace(
-    go.Scatter(
-        x=chart_data["Thời gian"],
-        y=chart_data["Điểm sương (°C)"],
-        name="Điểm sương (°C)",
-        mode="lines",
-        line=dict(color="#0d9488", width=1.8, dash="dash"),
-    ),
-    secondary_y=False,
-)
-fig2.add_trace(
-    go.Scatter(
-        x=chart_data["Thời gian"],
-        y=chart_data["Tầm nhìn (km)"],
-        name="Tầm nhìn (km)",
-        mode="lines",
-        line=dict(color="#6366f1", width=2),
-        fill="tozeroy",
-        fillcolor="rgba(99, 102, 241, 0.1)",
-    ),
-    secondary_y=True,
-)
-fig2.update_layout(
-    height=360,
-    margin=dict(l=10, r=10, t=30, b=10),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    hovermode="x unified",
-)
-fig2.update_yaxes(title_text="Nhiệt độ (°C)", secondary_y=False)
-fig2.update_yaxes(title_text="Tầm nhìn (km)", range=[0, 26], secondary_y=True)
+# 2. Xác suất Mưa & Dông
+st.markdown("#### 🌧️ 2. Xác suất Mưa (PoP) & Nguy cơ Dông")
+fig2 = go.Figure()
+fig2.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data["PoP Hiệu chỉnh (%)"], name="PoP Hiệu chỉnh (%)", mode="lines+markers", line=dict(color="#1d4ed8", width=2.5)))
+fig2.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data["Nguy cơ Dông (%)"], name="Nguy cơ Dông (%)", mode="lines", line=dict(color="#dc2626", width=2, dash="dot")))
+fig2.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
+fig2.update_yaxes(range=[0, 105])
 st.plotly_chart(fig2, use_container_width=True, config=touch_config)
-
 st.markdown("<br>", unsafe_allow_html=True)
 
-# 3. Biểu đồ Gió & Độ ẩm
-st.markdown(f"#### 💨 Gió ({wind_unit_text}) & Độ ẩm")
-fig3 = make_subplots(specs=[[{"secondary_y": True}]])
-fig3.add_trace(
-    go.Scatter(
-        x=chart_data["Thời gian"],
-        y=chart_data[f"Tốc độ gió ({wind_unit_text})"],
-        name=f"Gió duy trì ({wind_unit_text})",
-        mode="lines+markers",
-        line=dict(color="#0284c7", width=2.5),
-    ),
-    secondary_y=False,
-)
-fig3.add_trace(
-    go.Scatter(
-        x=chart_data["Thời gian"],
-        y=chart_data[f"Gió giật ({wind_unit_text})"],
-        name=f"Gió giật ({wind_unit_text})",
-        mode="lines",
-        line=dict(color="#e11d48", width=1.8, dash="dot"),
-    ),
-    secondary_y=False,
-)
-fig3.add_trace(
-    go.Scatter(
-        x=chart_data["Thời gian"],
-        y=chart_data["Độ ẩm 2m (%)"],
-        name="Độ ẩm 2m (%)",
-        mode="lines",
-        line=dict(color="#16a34a", width=1.5),
-    ),
-    secondary_y=True,
-)
-fig3.update_layout(
-    height=360,
-    margin=dict(l=10, r=10, t=30, b=10),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    hovermode="x unified",
-)
-fig3.update_yaxes(title_text=f"Tốc độ gió ({wind_unit_text})", secondary_y=False)
-fig3.update_yaxes(title_text="Độ ẩm (%)", range=[0, 105], secondary_y=True)
+# 3. Lượng mưa
+st.markdown("#### 💧 3. Lượng mưa (mm)")
+fig3 = go.Figure()
+fig3.add_trace(go.Bar(x=chart_data["Thời gian"], y=chart_data["Lượng mưa (mm)"], name="Lượng mưa (mm)", marker_color="#3b82f6"))
+fig3.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
 st.plotly_chart(fig3, use_container_width=True, config=touch_config)
+st.markdown("<br>", unsafe_allow_html=True)
+
+# 4. Gió duy trì & Gió giật
+st.markdown(f"#### 💨 4. Tốc độ gió & Gió giật ({wind_unit_text})")
+fig4 = go.Figure()
+fig4.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data[f"Tốc độ gió ({wind_unit_text})"], name=f"Gió duy trì ({wind_unit_text})", mode="lines+markers", line=dict(color="#0284c7", width=2.5)))
+fig4.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data[f"Gió giật ({wind_unit_text})"], name=f"Gió giật ({wind_unit_text})", mode="lines", line=dict(color="#e11d48", width=1.8, dash="dot")))
+fig4.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
+st.plotly_chart(fig4, use_container_width=True, config=touch_config)
+st.markdown("<br>", unsafe_allow_html=True)
+
+# 5. Độ ẩm không khí
+st.markdown("#### 💧 5. Độ ẩm không khí (2m & 850hPa)")
+fig5 = go.Figure()
+fig5.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data["Độ ẩm 2m (%)"], name="Độ ẩm 2m (%)", mode="lines", line=dict(color="#16a34a", width=2)))
+fig5.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data["Độ ẩm 850hPa (%)"], name="Độ ẩm 850hPa (%)", mode="lines", line=dict(color="#ca8a04", width=1.8, dash="dash")))
+fig5.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
+fig5.update_yaxes(range=[0, 105])
+st.plotly_chart(fig5, use_container_width=True, config=touch_config)
+st.markdown("<br>", unsafe_allow_html=True)
+
+# 6. Tầm nhìn xa
+st.markdown("#### 👁️ 6. Tầm nhìn xa (km)")
+fig6 = go.Figure()
+fig6.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data["Tầm nhìn (km)"], name="Tầm nhìn (km)", mode="lines+markers", line=dict(color="#6366f1", width=2), fill="tozeroy", fillcolor="rgba(99, 102, 241, 0.1)"))
+fig6.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
+fig6.update_yaxes(range=[0, 26])
+st.plotly_chart(fig6, use_container_width=True, config=touch_config)
+st.markdown("<br>", unsafe_allow_html=True)
+
+# 7. Áp suất bề mặt
+st.markdown("#### ⏱️ 7. Áp suất bề mặt (hPa)")
+fig7 = go.Figure()
+fig7.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data["Áp suất (hPa)"], name="Áp suất (hPa)", mode="lines", line=dict(color="#475569", width=2)))
+fig7.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
+st.plotly_chart(fig7, use_container_width=True, config=touch_config)
