@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG SÂN BAY THỌ XUÂN (VVTX) - PHIÊN BẢN HOÀN CHỈNH v4.4
-Tích hợp:
-- Đăng nhập gọn (admin / 123)
-- Chống nghẽn mạng API (Retry 3 lần, Timeout 60s)
-- Tùy chọn đơn vị gió linh hoạt (km/h hoặc m/s)
-- Bảng ngang rp5.ru + Biểu đồ đa lớp Plotly + Cảnh báo biến động
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - PHIÊN BẢN ĐA SÂN BAY
 """
 
 from __future__ import annotations
@@ -27,17 +22,37 @@ import requests
 import streamlit as st
 
 # =========================
-# 1. CẤU HÌNH & XÁC THỰC TÀI KHOẢN
+# 1. DANH SÁCH SÂN BAY & CẤU HÌNH
 # =========================
 
-AIRPORT_NAME = "Sân bay Thọ Xuân (VVTX)"
-LATITUDE = 19.9017
-LONGITUDE = 105.4678
-TIMEZONE = "Asia/Bangkok"
+AIRPORT_DATABASE = {
+    "Sân bay Thọ Xuân (VVTX)": {"lat": 19.9017, "lon": 105.4678},
+    "Sân bay Nội Bài (VVNB)": {"lat": 21.2212, "lon": 105.8072},
+    "Sân bay Tân Sơn Nhất (VVTS)": {"lat": 10.8188, "lon": 106.6519},
+    "Sân bay Đà Nẵng (VVDN)": {"lat": 16.0439, "lon": 108.1994},
+    "Sân bay Cát Bi (VVCI)": {"lat": 20.8234, "lon": 106.7219},
+    "Sân bay Phú Bài (VVPB)": {"lat": 16.4014, "lon": 107.7028},
+    "Sân bay Cam Ranh (VVCR)": {"lat": 11.9981, "lon": 109.2194},
+    "Sân bay Cần Thơ (VVCT)": {"lat": 10.0850, "lon": 105.7120},
+    "Sân bay Vinh (VVVH)": {"lat": 18.7360, "lon": 105.6710},
+    "Sân bay Phù Cát (VVPC)": {"lat": 13.9542, "lon": 109.0433},
+    "Sân bay Pleiku (VVPL)": {"lat": 14.0020, "lon": 108.0160},
+    "Sân bay Buôn Ma Thuột (VVBM)": {"lat": 12.6660, "lon": 108.1210},
+    "Sân bay Chu Lai (VVCA)": {"lat": 15.4050, "lon": 108.7060},
+    "Sân bay Đồng Hới (VVDH)": {"lat": 17.5110, "lon": 106.5910},
+    "Sân bay Tuy Hòa (VVTH)": {"lat": 13.0450, "lon": 109.3230},
+    "Sân bay Gia Lâm (VVGL)": {"lat": 21.0420, "lon": 105.8920},
+    "Sân bay Kép (Bắc Giang)": {"lat": 21.3650, "lon": 106.2650},
+    "Sân bay Biên Hòa (Đồng Nai)": {"lat": 10.9620, "lon": 106.8630},
+    "Sân bay Yên Bái": {"lat": 21.7167, "lon": 104.8833},
+    "Sân bay Móng Cái (Quảng Ninh)": {"lat": 21.5200, "lon": 107.9700},
+    "Sân bay Phan Rang (Ninh Thuận)": {"lat": 11.5600, "lon": 108.9800},
+    "Sân bay Phan Thiết (Bình Thuận)": {"lat": 10.9200, "lon": 108.1000},
+}
 
+TIMEZONE = "Asia/Bangkok"
 FORECAST_DAYS = 7
 REQUEST_TIMEOUT = 60
-
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 
 XWEATHER_CLIENT_ID = os.getenv("XWEATHER_CLIENT_ID", "xWCER0sSog3I6UWhHT5ZY")
@@ -70,7 +85,7 @@ HOURLY_VARIABLES = [
     "vertical_velocity_700hPa",
 ]
 
-st.set_page_config(page_title="Thời tiết Thọ Xuân (VVTX)", page_icon="🌤️", layout="wide")
+st.set_page_config(page_title="Thời tiết Sân bay Việt Nam", page_icon="✈️", layout="wide")
 
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
@@ -81,7 +96,7 @@ if "change_notification" not in st.session_state:
 def render_login_screen():
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
-        st.markdown("### ✈️ Đăng nhập Hệ thống VVTX")
+        st.markdown("### ✈️ Đăng nhập Hệ thống Khí tượng Sân bay")
         st.caption("Tài khoản: admin | Mật khẩu: 123")
         with st.form("login_form"):
             username = st.text_input("Tên đăng nhập", value="admin")
@@ -196,10 +211,10 @@ def wind_deg_to_dir(deg: float) -> str:
     return dirs[idx]
 
 
-def fetch_open_meteo(wind_unit: str = "kmh") -> Dict[str, Any]:
+def fetch_open_meteo(lat: float, lon: float, wind_unit: str = "kmh") -> Dict[str, Any]:
     params = {
-        "latitude": LATITUDE,
-        "longitude": LONGITUDE,
+        "latitude": lat,
+        "longitude": lon,
         "hourly": ",".join(HOURLY_VARIABLES),
         "timezone": TIMEZONE,
         "forecast_days": FORECAST_DAYS,
@@ -260,108 +275,10 @@ def local_hour_key(value: str) -> str:
     return dt.replace(minute=0, second=0, microsecond=0).isoformat(timespec="minutes")
 
 
-def fetch_xweather_forecast() -> Dict[str, Dict[str, Any]]:
-    if not XWEATHER_ENABLED:
-        return {}
-    url = f"{XWEATHER_API}/forecasts/{LATITUDE},{LONGITUDE}"
-    params = {
-        "client_id": XWEATHER_CLIENT_ID,
-        "client_secret": XWEATHER_CLIENT_SECRET,
-        "filter": "1hr",
-        "limit": FORECAST_DAYS * 24,
-    }
-    try:
-        res = requests.get(url, params=params, timeout=15)
-        payload = res.json()
-        if not payload.get("success"):
-            return {}
-        result = {}
-        for item in payload.get("response", []):
-            for period in item.get("periods", []):
-                iso = period.get("dateTimeISO") or period.get("validTime")
-                if iso:
-                    result[local_hour_key(str(iso))] = period
-        return result
-    except Exception:
-        return {}
-
-
-def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    radius = 6371.0088
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lon2 - lon1)
-    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    return 2 * radius * math.asin(math.sqrt(a))
-
-
-def lightning_score_from_distance(distance_km: float) -> float:
-    if distance_km <= 10:
-        return 100.0
-    if distance_km <= 20:
-        return 90.0
-    if distance_km <= 40:
-        return 75.0
-    if distance_km <= 60:
-        return 55.0
-    if distance_km <= 100:
-        return 30.0
-    return 0.0
-
-
-def fetch_xweather_lightning_score() -> float:
-    if not XWEATHER_ENABLED:
-        return 0.0
-    url = f"{XWEATHER_API}/lightning/closest"
-    params = {
-        "client_id": XWEATHER_CLIENT_ID,
-        "client_secret": XWEATHER_CLIENT_SECRET,
-        "p": f"{LATITUDE},{LONGITUDE}",
-        "radius": "100km",
-        "limit": 20,
-    }
-    try:
-        res = requests.get(url, params=params, timeout=10)
-        payload = res.json()
-        if not payload.get("success") or not payload.get("response"):
-            return 0.0
-        distances = []
-        for item in payload.get("response", []):
-            loc = item.get("loc", {})
-            lat = safe_float(loc.get("lat"), 999.0)
-            lon = safe_float(loc.get("long"), 999.0)
-            if abs(lat) <= 90 and abs(lon) <= 180:
-                distances.append(haversine_km(LATITUDE, LONGITUDE, lat, lon))
-        return lightning_score_from_distance(min(distances)) if distances else 0.0
-    except Exception:
-        return 0.0
-
-
 def process_forecast_models(forecasts: List[HourlyForecast], wind_unit: str = "kmh") -> List[HourlyForecast]:
-    xw_forecast = fetch_xweather_forecast()
-    lightning_score = fetch_xweather_lightning_score()
     now_dt = datetime.now(ZoneInfo(TIMEZONE)).replace(minute=0, second=0, microsecond=0, tzinfo=None)
 
     for fc in forecasts:
-        key = local_hour_key(fc.forecast_time)
-        xw = xw_forecast.get(key)
-        if xw:
-            fc.xweather_pop = safe_float(xw.get("pop")) if xw.get("pop") is not None else None
-            fc.xweather_precip_mm = safe_float(xw.get("precipMM")) if xw.get("precipMM") is not None else None
-            fc.xweather_visibility_km = safe_float(xw.get("visibilityKM")) if xw.get("visibilityKM") is not None else None
-            fc.xweather_weather = str(xw.get("weatherPrimary") or xw.get("weather") or "")
-
-        fc_dt = datetime.fromisoformat(fc.forecast_time.replace("Z", ""))
-        diff_hours = int((fc_dt - now_dt).total_seconds() // 3600)
-        if diff_hours == 0:
-            fc.xweather_lightning_score = lightning_score
-        elif diff_hours == 1 and lightning_score > 0:
-            fc.xweather_lightning_score = max(0.0, lightning_score * 0.6)
-        elif diff_hours == 2 and lightning_score > 0:
-            fc.xweather_lightning_score = max(0.0, lightning_score * 0.3)
-
-        fc.radar_score = max(fc.radar_score, fc.xweather_lightning_score)
-
         spread = dewpoint_spread(fc.temperature_2m, fc.dew_point_2m)
         moisture = (
             0.30 * fc.relative_humidity_2m
@@ -380,13 +297,9 @@ def process_forecast_models(forecasts: List[HourlyForecast], wind_unit: str = "k
             0.50 * fc.cloud_cover_low + 0.35 * fc.cloud_cover_mid + 0.15 * fc.cloud_cover_high
         )
 
-        xw_rain = fc.xweather_precip_mm if fc.xweather_precip_mm is not None else 0.0
-        rain_amount = max(fc.precipitation, fc.rain, fc.showers, xw_rain)
+        rain_amount = max(fc.precipitation, fc.rain, fc.showers)
         amount_score = clamp(100.0 * (1.0 - math.exp(-rain_amount / 2.0)))
-
         model_pop = fc.precipitation_probability_model
-        if fc.xweather_pop is not None:
-            model_pop = (1.0 - XWEATHER_WEIGHT) * model_pop + XWEATHER_WEIGHT * fc.xweather_pop
 
         fc.model_rain_score = clamp(0.65 * model_pop + 0.35 * amount_score)
 
@@ -398,10 +311,8 @@ def process_forecast_models(forecasts: List[HourlyForecast], wind_unit: str = "k
             1.10 if month in (5, 6, 7, 8, 9) else (0.65 if month in (11, 12, 1, 2) else 0.90)
         )
         fc.instability_score = clamp(cape_score * daytime_factor * seasonal_factor)
-
         fc.lifting_score = clamp(max(0.0, -fc.vertical_velocity_700hPa) * 100.0)
 
-        # Chuẩn hóa tốc độ gió về km/h để tính toán ngưỡng gió đông ẩm
         wind_kmh = fc.wind_speed_10m if wind_unit == "kmh" else fc.wind_speed_10m * 3.6
         wind_dir = fc.wind_direction_10m
         if 30 <= wind_dir <= 130 and wind_kmh >= 5:
@@ -423,9 +334,9 @@ def process_forecast_models(forecasts: List[HourlyForecast], wind_unit: str = "k
         )
         prob = sigmoid(z) * 100.0
 
-        if fc.relative_humidity_850hPa < 50 and rain_amount < 0.1 and fc.radar_score < 20:
+        if fc.relative_humidity_850hPa < 50 and rain_amount < 0.1:
             prob = min(prob, 25)
-        if fc.relative_humidity_700hPa < 40 and rain_amount < 0.1 and fc.radar_score < 20:
+        if fc.relative_humidity_700hPa < 40 and rain_amount < 0.1:
             prob = min(prob, 35)
         if fc.cloud_cover_low < 20 and fc.cloud_cover_mid < 30 and rain_amount < 0.1:
             prob = min(prob, 20)
@@ -434,15 +345,12 @@ def process_forecast_models(forecasts: List[HourlyForecast], wind_unit: str = "k
 
         fc.pop_calibrated = round(clamp(prob), 1)
 
-        thunder_weather_code = (
-            fc.weather_code in (95, 96, 99) or "thunder" in fc.xweather_weather.lower()
-        )
+        thunder_weather_code = fc.weather_code in (95, 96, 99)
         thunder_z = (
             -7.20
             + 0.00165 * fc.cape
             + 0.010 * model_pop
             + 0.50 * min(rain_amount, 4.0)
-            + 0.014 * fc.radar_score
             + 0.004 * fc.moisture_score
             + (2.20 if thunder_weather_code else 0.0)
         )
@@ -460,7 +368,7 @@ def process_forecast_models(forecasts: List[HourlyForecast], wind_unit: str = "k
                 else ("Trung bình" if fc.pop_calibrated >= 40 else "Thấp")
             )
         )
-        fc.confidence_note = "Open-Meteo + Xweather" if fc.xweather_pop is not None else "Open-Meteo"
+        fc.confidence_note = "Open-Meteo"
 
     return forecasts
 
@@ -609,12 +517,19 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Sidebar quản lý phiên làm việc & Tùy chọn hiển thị
+# Sidebar quản lý & Chọn sân bay
 st.sidebar.markdown("### 👤 Tài khoản Quản trị")
 st.sidebar.success("Đang đăng nhập: **admin**")
 if st.sidebar.button("🚪 Đăng xuất", use_container_width=True):
     st.session_state["logged_in"] = False
     st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ✈️ Lựa chọn Sân bay")
+selected_airport_name = st.sidebar.selectbox("Chọn điểm quan trắc:", list(AIRPORT_DATABASE.keys()), index=0)
+
+LATITUDE = AIRPORT_DATABASE[selected_airport_name]["lat"]
+LONGITUDE = AIRPORT_DATABASE[selected_airport_name]["lon"]
 
 st.sidebar.markdown("---")
 days_to_show = st.sidebar.selectbox(
@@ -629,16 +544,16 @@ wind_unit_text = "km/h" if wind_unit_param == "kmh" else "m/s"
 
 
 @st.cache_data(ttl=1800)
-def load_data(w_unit: str):
-    raw = fetch_open_meteo(wind_unit=w_unit)
+def load_data(lat: float, lon: float, w_unit: str):
+    raw = fetch_open_meteo(lat, lon, wind_unit=w_unit)
     forecasts = parse_forecasts(raw)
     processed = process_forecast_models(forecasts, wind_unit=w_unit)
     return processed
 
 
-with st.spinner("Đang đồng bộ dữ liệu khí tượng tại Sân bay Thọ Xuân (VVTX)..."):
+with st.spinner(f"Đang đồng bộ dữ liệu khí tượng tại {selected_airport_name}..."):
     try:
-        forecasts = load_data(wind_unit_param)
+        forecasts = load_data(LATITUDE, LONGITUDE, wind_unit_param)
     except Exception as e:
         st.error(f"Lỗi kết nối dữ liệu: {e}")
         st.stop()
@@ -655,7 +570,7 @@ if not future_forecasts:
 # Header & Nút cập nhật kèm cơ chế so sánh biến động
 col_title, col_btn = st.columns([4, 1])
 with col_title:
-    st.title(f"🌤️ Thời tiết tại {AIRPORT_NAME}")
+    st.title(f"🌤️ Thời tiết tại {selected_airport_name}")
     st.caption(
         f"Tọa độ: {LATITUDE}°N, {LONGITUDE}°E · Cập nhật lúc: {datetime.now(ZoneInfo(TIMEZONE)).strftime('%H:%M %d/%m/%Y')}"
     )
@@ -665,7 +580,7 @@ with col_btn:
         old_data = future_forecasts
         st.cache_data.clear()
         try:
-            new_raw = fetch_open_meteo(wind_unit=wind_unit_param)
+            new_raw = fetch_open_meteo(LATITUDE, LONGITUDE, wind_unit=wind_unit_param)
             new_parsed = parse_forecasts(new_raw)
             new_forecasts = process_forecast_models(new_parsed, wind_unit=wind_unit_param)
             new_future = [
