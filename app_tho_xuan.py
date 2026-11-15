@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - TÁCH RIÊNG TỪNG BIỂU ĐỒ SỐ LIỆU
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - TÍCH HỢP HỆ THỐNG THỜI TIẾT CHI PHỐI
 """
 
 from __future__ import annotations
@@ -109,7 +109,33 @@ if not st.session_state["logged_in"]:
 
 
 # =========================
-# 2. KIỂU DỮ LIỆU & THUẬT TOÁN
+# 2. HÀM PHÂN TÍCH HỆ THỐNG THỜI TIẾT CHI PHỐI (SYNOPTIC)
+# =========================
+
+def get_regional_synoptic_summary(lat: float) -> str:
+    """Tự động xác định hệ thống thời tiết chi phối dựa theo vĩ độ sân bay"""
+    if lat >= 18.5:
+        return (
+            "<b>Khu vực Bắc Bộ & Bắc Trung Bộ:</b> Đang chịu chi phối của rìa Tây Nam áp cao lạnh lục địa suy yếu "
+            "kết hợp trường gió nhẹ. Sáng sớm có sương mù và sương mù nhẹ; ban ngày nắng ráo, nhiệt độ xu hướng tăng. "
+            "<i>Lưu ý: Theo dõi các đợt không khí lạnh tăng cường sắp tới có khả năng gây chuyển gió Đông Bắc và mưa dông diện rộng.</i>"
+        )
+    elif 13.0 <= lat < 18.5:
+        return (
+            "<b>Khu vực Trung Trung Bộ:</b> Vùng chuyển tiếp chịu ảnh hưởng của không khí lạnh suy yếu kết hợp "
+            "với địa hình chắn gió dãy Trường Sơn và nhiễu động đới gió Đông. Thời tiết tạnh ráo, có nắng gián đoạn, "
+            "cần lưu ý mây thấp và mưa rào cục bộ về đêm."
+        )
+    else:
+        return (
+            "<b>Khu vực Nam Bộ, Tây Nguyên & Nam Trung Bộ:</b> Chịu tác động chủ đạo của rìa phía Nam hệ thống áp cao "
+            "và dòng thăng giáng nội chí tuyến/gió mùa Đông Bắc cường độ trung bình. Ban ngày nắng nhiều, "
+            "chiều tối và đêm xuất hiện mưa rào và dông vài nơi."
+        )
+
+
+# =========================
+# 3. KIỂU DỮ LIỆU & THUẬT TOÁN DỰ BÁO
 # =========================
 
 @dataclass
@@ -352,7 +378,7 @@ def process_forecast_models(forecasts: List[HourlyForecast], wind_unit: str = "k
 
 
 # =========================
-# 3. HÀM TẠO BẢNG NGANG CHI TIẾT SỐ LIỆU
+# 4. HÀM TẠO BẢNG NGANG CHI TIẾT SỐ LIỆU
 # =========================
 
 def get_weather_icon(fc: HourlyForecast) -> str:
@@ -486,14 +512,15 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
 
 
 # =========================
-# 4. GIAO DIỆN CHÍNH STREAMLIT
+# 5. GIAO DIỆN CHÍNH STREAMLIT
 # =========================
 
 st.markdown(
     """
 <style>
     .main { background-color: #f4f6f9; }
-    .summary-box { background-color: #ffffff; border-left: 5px solid #1e3a8a; padding: 15px 20px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 18px; font-size: 15px; line-height: 1.6; }
+    .summary-box { background-color: #ffffff; border-left: 5px solid #1e3a8a; padding: 15px 20px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 12px; font-size: 15px; line-height: 1.6; }
+    .synoptic-box { background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 5px solid #0284c7; padding: 12px 16px; border-radius: 6px; margin-bottom: 18px; font-size: 14px; line-height: 1.5; }
     .stButton>button { border-radius: 6px; font-weight: 600; }
 </style>
 """,
@@ -623,11 +650,23 @@ rain_desc = (
 )
 fmt_curr_wind = ".1f" if wind_unit_text == "m/s" else ".0f"
 
+# Khung tóm tắt thời tiết hiện tại
 st.markdown(
     f"""
 <div class="summary-box">
     <b>Hiện tại ({curr.forecast_time.split('T')[1]}):</b> Nhiệt độ <b>+{curr.temperature_2m:.1f} °C</b>, độ ẩm <b>{curr.relative_humidity_2m:.0f}%</b>, gió {wind_deg_to_dir(curr.wind_direction_10m)} <b>{curr.wind_speed_10m:{fmt_curr_wind}} {wind_unit_text}</b>, tầm nhìn <b>{curr.visibility_m/1000:.1f} km</b>.<br>
     <b>Dự báo 24 giờ tới:</b> Nhiệt độ dao động từ <b>+{min_t:.0f}..+{max_t:.0f} °C</b>, {rain_desc} (Xác suất mưa hiệu chỉnh cao nhất: <b>{max_pop:.0f}%</b>).
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+# Khung hệ thống thời tiết synoptic chi phối
+synoptic_html = get_regional_synoptic_summary(LATITUDE)
+st.markdown(
+    f"""
+<div class="synoptic-box">
+    🌐 <b>Hệ thống thời tiết chi phối:</b> {synoptic_html}
 </div>
 """,
     unsafe_allow_html=True,
@@ -641,7 +680,7 @@ st.markdown(render_rp5_horizontal_table(filtered, wind_unit_text), unsafe_allow_
 st.markdown("<br>", unsafe_allow_html=True)
 
 # =========================
-# 5. BIỂU ĐỒ PHÂN TÍCH KHÍ TƯỢNG (TÁCH RIÊNG TỪNG SỐ LIỆU ĐỘC LẬP)
+# 6. BIỂU ĐỒ PHÂN TÍCH KHÍ TƯỢNG (TÁCH RIÊNG TỪNG SỐ LIỆU ĐỘC LẬP)
 # =========================
 
 st.markdown("### 📈 Biểu đồ Phân tích Chi tiết Từng Số liệu")
