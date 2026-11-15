@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - TÁCH RỜI BIỂU ĐỒ
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - TÁCH SỐ LIỆU & TỐI ƯU CẢM ỨNG BIỂU ĐỒ
 """
 
 from __future__ import annotations
@@ -353,7 +353,7 @@ def process_forecast_models(forecasts: List[HourlyForecast], wind_unit: str = "k
 
 
 # =========================
-# 3. HÀM TẠO BẢNG NGANG (RP5 STYLE)
+# 3. HÀM TẠO BẢNG NGANG CHI TIẾT SỐ LIỆU
 # =========================
 
 def get_weather_icon(fc: HourlyForecast) -> str:
@@ -412,10 +412,13 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
     row_pop = ['<td class="sticky-col row-title"><b>PoP Hiệu chỉnh (%)</b></td>']
     row_thunder = ['<td class="sticky-col row-title">Nguy cơ Dông (%)</td>']
     row_rain = ['<td class="sticky-col row-title">Lượng mưa (mm)</td>']
-    row_temp = ['<td class="sticky-col row-title">Nhiệt độ (°C)</td>']
+    row_temp = ['<td class="sticky-col row-title">Nhiệt độ 2m (°C)</td>']
+    row_dew = ['<td class="sticky-col row-title">Điểm sương (°C)</td>']
     row_cloud = ['<td class="sticky-col row-title">Mây tổng / Thấp (%)</td>']
-    row_wind = [f'<td class="sticky-col row-title">Gió / Giật ({wind_unit_text})</td>']
-    row_rh = ['<td class="sticky-col row-title">Độ ẩm 2m / 850hPa</td>']
+    row_wind = [f'<td class="sticky-col row-title">Gió duy trì ({wind_unit_text})</td>']
+    row_gust = [f'<td class="sticky-col row-title">Gió giật ({wind_unit_text})</td>']
+    row_rh = ['<td class="sticky-col row-title">Độ ẩm 2m (%)</td>']
+    row_rh850 = ['<td class="sticky-col row-title">Độ ẩm 850hPa (%)</td>']
     row_vis = ['<td class="sticky-col row-title">Tầm nhìn (km)</td>']
     row_press = ['<td class="sticky-col row-title">Áp suất (hPa)</td>']
 
@@ -436,17 +439,16 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
             f'<td><b>{rain_val:.1f}</b></td>' if rain_val > 0 else '<td style="color:#94a3b8;">0.0</td>'
         )
         row_temp.append(
-            f'<td style="background:{get_temp_bg(fc.temperature_2m)}"><b>+{fc.temperature_2m:.0f}</b></td>'
+            f'<td style="background:{get_temp_bg(fc.temperature_2m)}"><b>+{fc.temperature_2m:.1f}</b></td>'
         )
+        row_dew.append(f'<td>{fc.dew_point_2m:.1f}</td>')
         row_cloud.append(
             f'<td>{fc.cloud_cover:.0f}% <span style="color:#64748b;font-size:11px;">({fc.cloud_cover_low:.0f}%)</span></td>'
         )
-        row_wind.append(
-            f'<td>{wind_dir} {fc.wind_speed_10m:{fmt_wind}} <span style="color:#ef4444;font-size:11px;">({fc.wind_gusts_10m:{fmt_wind}})</span></td>'
-        )
-        row_rh.append(
-            f'<td>{fc.relative_humidity_2m:.0f}% / <b>{fc.relative_humidity_850hPa:.0f}%</b></td>'
-        )
+        row_wind.append(f'<td>{wind_dir} {fc.wind_speed_10m:{fmt_wind}}</td>')
+        row_gust.append(f'<td style="color:#ef4444; font-weight:bold;">{fc.wind_gusts_10m:{fmt_wind}}</td>')
+        row_rh.append(f'<td>{fc.relative_humidity_2m:.0f}%</td>')
+        row_rh850.append(f'<td><b>{fc.relative_humidity_850hPa:.0f}%</b></td>')
         row_vis.append(f'<td>{fc.visibility_m/1000:.1f}</td>')
         row_press.append(f'<td>{fc.surface_pressure:.0f}</td>')
 
@@ -469,9 +471,12 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
                 <tr>{''.join(row_thunder)}</tr>
                 <tr>{''.join(row_rain)}</tr>
                 <tr>{''.join(row_temp)}</tr>
+                <tr>{''.join(row_dew)}</tr>
                 <tr>{''.join(row_cloud)}</tr>
                 <tr>{''.join(row_wind)}</tr>
+                <tr>{''.join(row_gust)}</tr>
                 <tr>{''.join(row_rh)}</tr>
+                <tr>{''.join(row_rh850)}</tr>
                 <tr>{''.join(row_vis)}</tr>
                 <tr>{''.join(row_press)}</tr>
             </tbody>
@@ -637,10 +642,11 @@ st.markdown(render_rp5_horizontal_table(filtered, wind_unit_text), unsafe_allow_
 st.markdown("<br>", unsafe_allow_html=True)
 
 # =========================
-# 5. BIỂU ĐỒ PHÂN TÍCH KHÍ TƯỢNG (TÁCH RỜI ĐỘC LẬP)
+# 5. BIỂU ĐỒ PHÂN TÍCH KHÍ TƯỢNG (TÁCH RỜI & TỐI ƯU CẢM ỨNG ZOOM/PAN)
 # =========================
 
 st.markdown("### 📈 Biểu đồ Phân tích Khí tượng Trực quan")
+st.caption("💡 Mẹo trên điện thoại: Dùng 2 ngón tay để phóng to/thu nhỏ (pinch-to-zoom) hoặc trượt sang trái/phải để xem chi tiết biểu đồ.")
 
 chart_data = pd.DataFrame(
     [
@@ -659,6 +665,13 @@ chart_data = pd.DataFrame(
         for fc in filtered
     ]
 )
+
+# Cấu hình cảm ứng đa điểm & phóng to cho biểu đồ Plotly trên di động
+touch_config = {
+    "scrollZoom": True,
+    "displayModeBar": True,
+    "responsive": True,
+}
 
 # 1. Biểu đồ Xác suất Mưa & Dông
 st.markdown("#### 🌧️ Xác suất Mưa & Dông")
@@ -700,7 +713,7 @@ fig1.update_layout(
 )
 fig1.update_yaxes(title_text="Xác suất (%)", range=[0, 105], secondary_y=False)
 fig1.update_yaxes(title_text="Lượng mưa (mm)", secondary_y=True)
-st.plotly_chart(fig1, use_container_width=True)
+st.plotly_chart(fig1, use_container_width=True, config=touch_config)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -747,7 +760,7 @@ fig2.update_layout(
 )
 fig2.update_yaxes(title_text="Nhiệt độ (°C)", secondary_y=False)
 fig2.update_yaxes(title_text="Tầm nhìn (km)", range=[0, 26], secondary_y=True)
-st.plotly_chart(fig2, use_container_width=True)
+st.plotly_chart(fig2, use_container_width=True, config=touch_config)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -792,4 +805,4 @@ fig3.update_layout(
 )
 fig3.update_yaxes(title_text=f"Tốc độ gió ({wind_unit_text})", secondary_y=False)
 fig3.update_yaxes(title_text="Độ ẩm (%)", range=[0, 105], secondary_y=True)
-st.plotly_chart(fig3, use_container_width=True)
+st.plotly_chart(fig3, use_container_width=True, config=touch_config)
