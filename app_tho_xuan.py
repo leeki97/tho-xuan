@@ -43,6 +43,7 @@ AIRPORT_DATABASE = {
     "Sân bay Gia Lâm (VVGL)": {"lat": 21.0420, "lon": 105.8920},
     "Sân bay Kép (Bắc Giang)": {"lat": 21.3650, "lon": 106.2650},
     "Sân bay Biên Hòa (Đồng Nai)": {"lat": 10.9620, "lon": 106.8630},
+    "Sân bay Tân Sơn Nhất (VVTS)": {"lat": 10.8188,"lon": 106.6520},
     "Sân bay Yên Bái": {"lat": 21.7167, "lon": 104.8833},
     "Sân bay Móng Cái (Quảng Ninh)": {"lat": 21.5200, "lon": 107.9700},
     "Sân bay Phan Rang (Ninh Thuận)": {"lat": 11.5600, "lon": 108.9800},
