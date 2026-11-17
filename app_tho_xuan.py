@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/init/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.22
-(Chuyển thuyết minh công thức sang Sidebar & Diễn giải chi tiết thuật toán)
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.24
+(Tối ưu phông chữ & Tách tab nội dung thuyết trình chuyên sâu)
 """
 
 from __future__ import annotations
@@ -79,6 +79,53 @@ HOURLY_VARIABLES = [
 ]
 
 st.set_page_config(page_title="Thời tiết Sân bay Việt Nam", page_icon="✈️", layout="wide")
+
+# =========================
+# CẤU HÌNH PHÔNG CHỮ & GIAO DIỆN (CSS)
+# =========================
+st.markdown(
+    """
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif !important;
+    }
+    
+    .main { background-color: #f8fafc; }
+    
+    .summary-box { 
+        background-color: #ffffff; 
+        border-left: 5px solid #1e3a8a; 
+        padding: 16px 20px; 
+        border-radius: 6px; 
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08); 
+        margin-bottom: 16px; 
+        font-size: 14.5px; 
+        line-height: 1.6; 
+        color: #1e293b;
+    }
+    
+    .stButton>button { 
+        border-radius: 6px; 
+        font-weight: 600; 
+    }
+    
+    .tab-content {
+        background: #ffffff;
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        margin-bottom: 20px;
+        font-size: 14px;
+        line-height: 1.7;
+        color: #334155;
+    }
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
@@ -223,7 +270,7 @@ def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float
     upcoming_system = "<b>2. Nhận định xu thế:</b> Thời tiết ổn định trong ngắn hạn, lưu ý hiện tượng giảm tầm nhìn sáng sớm do sương mù bức xạ.<br>"
     local_trend = f"<b>3. Biên độ nhiệt tại {airport_name}:</b> Từ <b>+{min_overall_temp:.0f}°C đến +{max_overall_temp:.0f}°C</b>."
 
-    return f"<div style='line-height: 1.6; font-size: 13px;'>{current_synoptic}{sea_info}<br>{upcoming_system}<br>{local_trend}</div>"
+    return f"<div style='line-height: 1.6; font-size: 13.5px;'>{current_synoptic}{sea_info}<br>{upcoming_system}<br>{local_trend}</div>"
 
 
 def clamp(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
@@ -602,7 +649,7 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
     table_html = f"""
     <style>
         .rp5-container {{ width: 100%; overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 8px; background: #ffffff; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }}
-        .rp5-table {{ border-collapse: collapse; width: max-content; font-family: Arial, sans-serif; font-size: 13px; text-align: center; }}
+        .rp5-table {{ border-collapse: collapse; width: max-content; font-family: 'Inter', sans-serif; font-size: 13px; text-align: center; }}
         .rp5-table th, .rp5-table td {{ border: 1px solid #e2e8f0; padding: 6px 10px; white-space: nowrap; }}
         .sticky-col {{ position: sticky; left: 0; background-color: #f1f5f9 !important; z-index: 2; text-align: left !important; font-weight: 600; color: #1e293b; border-right: 2px solid #94a3b8 !important; }}
         .day-header {{ background-color: #1e3a8a; color: white; font-size: 13px; padding: 8px; }}
@@ -643,17 +690,6 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
 # 5. GIAO DIỆN CHÍNH STREAMLIT
 # =========================
 
-st.markdown(
-    """
-<style>
-    .main { background-color: #f4f6f9; }
-    .summary-box { background-color: #ffffff; border-left: 5px solid #1e3a8a; padding: 15px 20px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 12px; font-size: 15px; line-height: 1.6; }
-    .stButton>button { border-radius: 6px; font-weight: 600; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
 st.sidebar.markdown("### 👤 Tài khoản Quản trị")
 st.sidebar.success("Đang đăng nhập: **admin**")
 if st.sidebar.button("🚪 Đăng xuất", use_container_width=True):
@@ -677,28 +713,6 @@ wind_unit_label = st.sidebar.selectbox(
 )
 wind_unit_param = "kmh" if "km/h" in wind_unit_label else "ms"
 wind_unit_text = "km/h" if wind_unit_param == "kmh" else "m/s"
-
-# Đưa phần Thuyết minh Công thức & Diễn giải sang Cột bên trái (Sidebar)
-st.sidebar.markdown("---")
-with st.sidebar.expander("📖 Thuyết minh Công thức & Quy trình", expanded=False):
-    st.markdown("""
-    <div style='line-height: 1.6; font-size: 12px;'>
-        <b>1. Độ cao Chân mây (Cloud Base):</b><br>
-        • <i>Công thức (Espy):</i> $\\text{Base} = \\frac{T - T_d}{2.5} \\times 1000$<br>
-        • <i>Diễn giải:</i> Tính dựa trên độ chênh lệch nhiệt độ mặt đất ($T$) và điểm sương ($T_d$). Khi khối khí dâng lên đoạn nhiệt, hơi nước ngưng tụ thành mây tại độ cao này.<br><br>
-        
-        <b>2. Độ cao Đỉnh mây (Cloud Top):</b><br>
-        • <i>Công thức:</i> $\\text{Top} = \\text{Base} + 1800 + (\\text{CloudCover} \\times 25) + (\\text{CAPE} \\times 0.5)$<br>
-        • <i>Diễn giải:</i> Ước tính bằng cách cộng thêm độ dày tầng mây, phụ thuộc vào lượng mây tổng và năng lượng đối lưu (CAPE).<br><br>
-        
-        <b>3. Hiệu chỉnh Tầm nhìn (METAR Bias Correction):</b><br>
-        • <i>Vấn đề:</i> Mô hình toàn cầu Open-Meteo bị kẹt cứng ở 24.1km và bóp thấp bất thường giữa trưa.<br>
-        • <i>Giải pháp:</i> Giữ tầm nhìn tự nhiên, ép tối thiểu $\\ge 10\\text{ km}$ vào ban ngày khô ráo ($RH < 85\\%$) và bù trừ điểm sương để phản ánh sương mù bức xạ về đêm.<br><br>
-        
-        <b>4. Xác suất Mưa (PoP) & Nguy cơ Dông:</b><br>
-        • Sử dụng hàm <b>Sigmoid</b> kết hợp trọng số độ ẩm các tầng (2m, 850hPa, 700hPa), CAPE và vận tốc thẳng đứng ($w$).
-    </div>
-    """, unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=1800)
@@ -762,6 +776,74 @@ st.markdown(
 with st.expander("🌐 Yếu tố ảnh hưởng & Bản tin Phân tích Hệ thống Thời tiết", expanded=False):
     synoptic_outlook_html = generate_10_day_synoptic_outlook(future_forecasts[:240], LATITUDE, selected_airport_name)
     st.markdown(synoptic_outlook_html, unsafe_allow_html=True)
+
+# =========================
+# PHẦN THUYẾT TRÌNH MÔ HÌNH (TÁCH THÀNH CÁC TAB RIÊNG BIỆT)
+# =========================
+st.markdown("### 📚 Thuyết trình Chi tiết Mô hình Dự báo Khí tượng")
+st.caption("💡 Nhấp vào các tab dưới đây để xem chi tiết đầy đủ về nguồn dữ liệu, công thức tính toán, kết quả và ứng dụng thực tế.")
+
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📂 Nguồn số liệu đầu vào", 
+    "🧮 Công thức & Thuật toán", 
+    "🎯 Kết quả đạt được", 
+    "🚀 Khả năng ứng dụng"
+])
+
+with tab1:
+    st.markdown("""
+    <div class="tab-content">
+        <b>1. Nguồn dữ liệu số trị toàn cầu (NWPs):</b><br>
+        • Sử dụng API mô hình số trị tiên tiến <b>Open-Meteo</b> (tích hợp dữ liệu từ ECMWF, GFS, ICON).<br>
+        • Cung cấp chuỗi thời gian 10 ngày với bước thời gian từng giờ (hourly), bao gồm các thông số bề mặt và khí quyển cao cấp.<br><br>
+        <b>2. Các biến khí tượng được trích xuất:</b><br>
+        • <b>Nhiệt độ & Điểm sương ($T, T_d$):</b> Tại độ cao 2m.<br>
+        • <b>Hệ thống mây:</b> Lượng mây tổng ($CloudCover$), mây thấp, mây trung, mây cao.<br>
+        • <b>Động lực khí quyển:</b> Năng lượng đối lưu khả dụng (CAPE), vận tốc thẳng đứng tại tầng 700hPa ($w$).<br>
+        • <b>Độ ẩm các tầng cao:</b> Độ ẩm tương đối tại tầng 850hPa và 700hPa.<br>
+        • <b>Trường gió & Áp suất:</b> Tốc độ gió 10m, hướng gió, gió giật và áp suất khí quyển bề mặt.
+    </div>
+    """, unsafe_allow_html=True)
+
+with tab2:
+    st.markdown("""
+    <div class="tab-content">
+        <b>1. Tính toán độ cao Chân mây (Cloud Base Height - Espy's Formula):</b><br>
+        • <i>Công thức:</i> $\\text{Base (ft)} = \\frac{T - T_d}{2.5} \\times 1000$<br>
+        • <i>Diễn giải:</i> Dựa trên độ chênh lệch nhiệt độ và điểm sương. Khi khối khí ẩm bốc lên đoạn nhiệt, nhiệt độ và điểm sương hội tụ với tốc độ khoảng 2.5°C trên mỗi 1000 ft, xác định chính xác điểm ngưng tụ.<br><br>
+        <b>2. Tính toán độ cao Đỉnh mây (Cloud Top Height):</b><br>
+        • <i>Công thức:</i> $\\text{Top (ft)} = \\text{Base (ft)} + 1800 + (\\text{CloudCover} \\times 25) + (\\min(\\text{CAPE}, 1000) * 0.5)$<br>
+        • <i>Diễn giải:</i> Đỉnh mây được ước tính bằng cách cộng độ dày tầng mây, tăng lên khi lượng mây phong phú và năng lượng đối lưu CAPE lớn.<br><br>
+        <b>3. Hiệu chỉnh Tầm nhìn theo chuẩn METAR (Bias Correction):</b><br>
+        • Khắc phục nhược điểm mô hình toàn cầu hay bị kẹt ở 24.1km và bóp thấp bất thường ban ngày. Hệ thống tự động ép tầm nhìn tối thiểu $\\ge 10\\text{ km}$ lúc ban ngày khô ráo ($RH < 85\\%$) và cộng bù trừ điểm sương để phản ánh sương mù bức xạ về đêm.<br><br>
+        <b>4. Hiệu chỉnh Xác suất Mưa (PoP) & Nguy cơ Dông:</b><br>
+        • Sử dụng hàm kích hoạt phi tuyến tính <b>Sigmoid</b> kết hợp các trọng số độ ẩm đa tầng, CAPE và vận tốc thẳng đứng.
+    </div>
+    """, unsafe_allow_html=True)
+
+with tab3:
+    st.markdown("""
+    <div class="tab-content">
+        <b>1. Độ chính xác và độ tin cậy:</b><br>
+        • Khắc phục hoàn toàn hiện tượng dự báo sai lệch cục địa của các mô hình toàn cầu nhờ thuật toán hiệu chỉnh riêng cho từng vùng sân bay (đặc biệt là sân bay Thọ Xuân - VVTX).<br>
+        • Đảm bảo biểu đồ trực quan không bị lỗi số liệu (như đỉnh mây bằng 0) và luôn có giá trị logic an toàn hàng không.<br><br>
+        <b>2. Giao diện trực quan hóa:</b><br>
+        • Bảng chi tiết dạng ma trận RP5 trực quan, cho phép kéo ngang theo dõi 10 ngày.<br>
+        • Hệ thống biểu đồ tương động (Plotly) hỗ trợ zoom, trượt, xem trực tiếp trên mọi thiết bị di động và máy tính.
+    </div>
+    """, unsafe_allow_html=True)
+
+with tab4:
+    st.markdown("""
+    <div class="tab-content">
+        <b>1. Ứng dụng trong ngành Hàng không:</b><br>
+        • Cung cấp dữ liệu chân mây, đỉnh mây và tầm nhìn chính xác giúp tổ bay, đài kiểm soát không lưu và đơn vị khai thác lập kế hoạch cất/hạ cánh an toàn.<br>
+        • Cảnh báo sớm nguy cơ dông sét, gió giật mạnh và giảm tầm nhìn đột ngột.<br><br>
+        <b>2. Khả năng mở rộng:</b><br>
+        • Dễ dàng tích hợp thêm các sân bay khác trong mạng lưới hàng không dân dụng và quân sự Việt Nam.<br>
+        • Có thể phát triển tiếp tính năng đẩy cảnh báo tự động qua Telegram/Email khi các thông số thời tiết chạm ngưỡng giới hạn khai thác (minimums).
+    </div>
+    """, unsafe_allow_html=True)
 
 filtered = future_forecasts[: days_to_show * 24]
 
