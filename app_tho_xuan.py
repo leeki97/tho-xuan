@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/init/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.19
-(Tối ưu hóa thời gian thực: Bias Correction METAR, Chân mây & Tầm nhìn linh hoạt)
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.20
+(Bổ sung Độ cao Chân mây & Đỉnh mây ước tính theo chuẩn hàng không)
 """
 
 from __future__ import annotations
@@ -129,7 +129,7 @@ def safe_int(value: Any, default: int = 0) -> int:
 
 
 # =========================
-# 3. HÀM PHÂN TÍCH HÌNH THẾ SYNOPTIC & XU THẾ 10 NGÀY
+# 3. HÀM PHÂN TÍCH & DỮ LIỆU
 # =========================
 
 @dataclass
@@ -159,6 +159,7 @@ class HourlyForecast:
     vertical_velocity_700hPa: float
 
     estimated_cloud_base_ft: float = 0.0
+    estimated_cloud_top_ft: float = 0.0
 
     radar_score: float = 0.0
     moisture_score: float = 0.0
@@ -291,9 +292,17 @@ def parse_forecasts(data: Dict[str, Any]) -> List[HourlyForecast]:
         vis_val = safe_float(hourly.get("visibility", [0] * len(times))[i])
         temp_val = safe_float(hourly.get("temperature_2m", [0] * len(times))[i])
         dew_val = safe_float(hourly.get("dew_point_2m", [0] * len(times))[i])
+        cloud_total = safe_float(hourly.get("cloud_cover", [0] * len(times))[i])
+        cape_val = safe_float(hourly.get("cape", [0] * len(times))[i])
+        rh_850 = safe_float(hourly.get("relative_humidity_850hPa", [0] * len(times))[i])
         
+        # Chân mây (Cloud Base) theo Espy's formula
         spread = max(0.1, temp_val - dew_val)
         cloud_base_ft = round((spread / 2.5) * 1000.0, 0)
+        
+        # Đỉnh mây (Cloud Top): Ước tính dựa trên độ dày tầng mây & CAPE/độ ẩm 850hPa
+        thickness_factor = 2000.0 + (cloud_total * 40.0) + (cape_val * 0.5) if rh_850 > 75 else 1500.0 + (cloud_total * 20.0)
+        cloud_top_ft = round(cloud_base_ft + thickness_factor, 0)
 
         forecasts.append(
             HourlyForecast(
@@ -306,21 +315,22 @@ def parse_forecasts(data: Dict[str, Any]) -> List[HourlyForecast]:
                 rain=safe_float(hourly.get("rain", [0] * len(times))[i]),
                 showers=safe_float(hourly.get("showers", [0] * len(times))[i]),
                 weather_code=safe_int(hourly.get("weather_code", [0] * len(times))[i]),
-                cloud_cover=safe_float(hourly.get("cloud_cover", [0] * len(times))[i]),
+                cloud_cover=cloud_total,
                 cloud_cover_low=safe_float(hourly.get("cloud_cover_low", [0] * len(times))[i]),
                 cloud_cover_mid=safe_float(hourly.get("cloud_cover_mid", [0] * len(times))[i]),
                 cloud_cover_high=safe_float(hourly.get("cloud_cover_high", [0] * len(times))[i]),
                 visibility_raw=vis_val,
                 visibility_m=vis_val,
                 surface_pressure=safe_float(hourly.get("surface_pressure", [0] * len(times))[i]),
-                cape=safe_float(hourly.get("cape", [0] * len(times))[i]),
+                cape=cape_val,
                 wind_speed_10m=safe_float(hourly.get("wind_speed_10m", [0] * len(times))[i]),
                 wind_direction_10m=safe_float(hourly.get("wind_direction_10m", [0] * len(times))[i]),
                 wind_gusts_10m=safe_float(hourly.get("wind_gusts_10m", [0] * len(times))[i]),
-                relative_humidity_850hPa=safe_float(hourly.get("relative_humidity_850hPa", [0] * len(times))[i]),
+                relative_humidity_850hPa=rh_850,
                 relative_humidity_700hPa=safe_float(hourly.get("relative_humidity_700hPa", [0] * len(times))[i]),
                 vertical_velocity_700hPa=safe_float(hourly.get("vertical_velocity_700hPa", [0] * len(times))[i]),
                 estimated_cloud_base_ft=cloud_base_ft,
+                estimated_cloud_top_ft=cloud_top_ft,
             )
         )
     return forecasts
@@ -540,6 +550,7 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
     row_cloud_mid = ['<td class="sticky-col row-title">Mây trung (%)</td>']
     row_cloud_high = ['<td class="sticky-col row-title">Mây cao (%)</td>']
     row_cloud_base = ['<td class="sticky-col row-title" style="background:#eef2f6;"><b>Chân mây (ft / m)</b></td>']
+    row_cloud_top = ['<td class="sticky-col row-title" style="background:#eef2f6;"><b>Đỉnh mây (ft / m)</b></td>']
 
     row_wind = [f'<td class="sticky-col row-title">Gió duy trì ({wind_unit_text})</td>']
     row_gust = [f'<td class="sticky-col row-title">Gió giật ({wind_unit_text})</td>']
@@ -556,6 +567,7 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
         rain_val = max(fc.precipitation, fc.rain, fc.showers)
         wind_dir = wind_deg_to_dir(fc.wind_direction_10m)
         base_m = int(fc.estimated_cloud_base_ft * 0.3048)
+        top_m = int(fc.estimated_cloud_top_ft * 0.3048)
 
         row_hours.append(f'<td class="hour-cell">{dt.strftime("%H:%M")}</td>')
         row_icons.append(f'<td style="font-size: 18px;">{get_weather_icon(fc)}</td>')
@@ -576,6 +588,7 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
         row_cloud_mid.append(f'<td>{fc.cloud_cover_mid:.0f}%</td>')
         row_cloud_high.append(f'<td>{fc.cloud_cover_high:.0f}%</td>')
         row_cloud_base.append(f'<td style="background:#f8fafc;"><b>{fc.estimated_cloud_base_ft:.0f} ft</b><br><span style="color:#64748b;font-size:11px;">({base_m}m)</span></td>')
+        row_cloud_top.append(f'<td style="background:#f8fafc;"><b>{fc.estimated_cloud_top_ft:.0f} ft</b><br><span style="color:#64748b;font-size:11px;">({top_m}m)</span></td>')
 
         row_wind.append(f'<td>{wind_dir} {fc.wind_speed_10m:{fmt_wind}}</td>')
         row_gust.append(f'<td style="color:#ef4444; font-weight:bold;">{fc.wind_gusts_10m:{fmt_wind}}</td>')
@@ -610,6 +623,7 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
                 <tr>{''.join(row_cloud_mid)}</tr>
                 <tr>{''.join(row_cloud_high)}</tr>
                 <tr>{''.join(row_cloud_base)}</tr>
+                <tr>{''.join(row_cloud_top)}</tr>
                 <tr>{''.join(row_wind)}</tr>
                 <tr>{''.join(row_gust)}</tr>
                 <tr>{''.join(row_rh)}</tr>
@@ -756,6 +770,7 @@ chart_data = pd.DataFrame(
             "Tầm nhìn Gốc (km)": round(fc.visibility_raw / 1000.0, 1),
             "Tầm nhìn Hiệu chỉnh (km)": round(fc.visibility_m / 1000.0, 1),
             "Chân mây (ft)": fc.estimated_cloud_base_ft,
+            "Đỉnh mây (ft)": fc.estimated_cloud_top_ft,
             "Áp suất (hPa)": fc.surface_pressure,
         }
         for fc in filtered
@@ -786,7 +801,7 @@ fig3 = go.Figure()
 fig3.add_trace(go.Bar(x=chart_data["Thời gian"], y=chart_data["Lượng mưa (mm)"], name="Lượng mưa (mm)", marker_color="#3b82f6"))
 fig3.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
 st.plotly_chart(fig3, use_container_width=True, config=touch_config)
-st.markdown("<br>", unsafe_allow_html=Thread if 'Thread' in globals() else True)
+st.markdown("<br>", unsafe_allow_html=True)
 
 st.markdown(f"#### 💨 4. Tốc độ gió & Gió giật ({wind_unit_text})")
 fig4 = go.Figure()
@@ -796,10 +811,11 @@ fig4.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), legend=dict(
 st.plotly_chart(fig4, use_container_width=True, config=touch_config)
 st.markdown("<br>", unsafe_allow_html=True)
 
-st.markdown("#### ☁️ 5. Độ cao chân mây ước tính (ft)")
+st.markdown("#### ☁️ 5. Độ cao Chân mây & Đỉnh mây ước tính (ft)")
 fig5 = go.Figure()
-fig5.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data["Chân mây (ft)"], name="Chân mây (ft)", mode="lines+markers", line=dict(color="#0284c7", width=2), fill="tozeroy", fillcolor="rgba(2, 132, 199, 0.1)"))
-fig5.update_layout(height=280, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
+fig5.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data["Đỉnh mây (ft)"], name="Đỉnh mây (ft)", mode="lines", line=dict(color="#7c3aed", width=2), fill="tozeroy", fillcolor="rgba(124, 58, 237, 0.08)"))
+fig5.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data["Chân mây (ft)"], name="Chân mây (ft)", mode="lines+markers", line=dict(color="#0284c7", width=2.5)))
+fig5.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
 st.plotly_chart(fig5, use_container_width=True, config=touch_config)
 st.markdown("<br>", unsafe_allow_html=True)
 
