@@ -1,8 +1,8 @@
-#!/usr/init/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.20
-(Bổ sung Độ cao Chân mây & Đỉnh mây ước tính theo chuẩn hàng không)
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.21
+(Bổ sung thuyết minh công thức, vá lỗi đỉnh mây & tối ưu hóa toàn diện)
 """
 
 from __future__ import annotations
@@ -296,13 +296,14 @@ def parse_forecasts(data: Dict[str, Any]) -> List[HourlyForecast]:
         cape_val = safe_float(hourly.get("cape", [0] * len(times))[i])
         rh_850 = safe_float(hourly.get("relative_humidity_850hPa", [0] * len(times))[i])
         
-        # Chân mây (Cloud Base) theo Espy's formula
+        # 1. Chân mây (Cloud Base) theo Espy's formula: ((T - Td) / 2.5) * 1000 ft
         spread = max(0.1, temp_val - dew_val)
         cloud_base_ft = round((spread / 2.5) * 1000.0, 0)
-        
-        # Đỉnh mây (Cloud Top): Ước tính dựa trên độ dày tầng mây & CAPE/độ ẩm 850hPa
-        thickness_factor = 2000.0 + (cloud_total * 40.0) + (cape_val * 0.5) if rh_850 > 75 else 1500.0 + (cloud_total * 20.0)
-        cloud_top_ft = round(cloud_base_ft + thickness_factor, 0)
+        cloud_base_ft = max(200.0, min(cloud_base_ft, 25000.0))
+
+        # 2. Đỉnh mây (Cloud Top) an toàn (Luôn cao hơn chân mây)
+        thickness = 1800.0 + (cloud_total * 25.0) + (min(cape_val, 1000.0) * 0.5)
+        cloud_top_ft = round(cloud_base_ft + max(1500.0, thickness), 0)
 
         forecasts.append(
             HourlyForecast(
@@ -739,6 +740,26 @@ st.markdown(
 with st.expander("🌐 Yếu tố ảnh hưởng & Bản tin Phân tích Hệ thống Thời tiết", expanded=False):
     synoptic_outlook_html = generate_10_day_synoptic_outlook(future_forecasts[:240], LATITUDE, selected_airport_name)
     st.markdown(synoptic_outlook_html, unsafe_allow_html=True)
+
+with st.expander("📖 Thuyết minh Phương pháp & Công thức Tính toán Khí tượng", expanded=False):
+    st.markdown("""
+    <div style='line-height: 1.7; font-size: 13.5px;'>
+        <b>1. Công thức tính độ cao Chân mây (Cloud Base Height - Espy's Formula):</b><br>
+        • <i>Công thức:</i> $\\text{Base (ft)} = \\frac{T - T_d}{2.5} \\times 1000$<br>
+        • <i>Giải thích:</i> Dựa trên độ chênh lệch giữa nhiệt độ mặt đất ($T$) và điểm sương ($T_d$). Khi không khí dâng lên đoạn nhiệt, nhiệt độ và điểm sương hội tụ với tốc độ khoảng 2.5°C/1000 ft, xác định chính xác độ cao nơi hơi nước ngưng tụ thành mây.<br><br>
+        
+        <b>2. Công thức tính độ cao Đỉnh mây (Cloud Top Height):</b><br>
+        • <i>Công thức:</i> $\\text{Top (ft)} = \\text{Base (ft)} + 1800 + (\\text{CloudCover} \\times 25) + (\\min(\\text{CAPE}, 1000) \\times 0.5)$<br>
+        • <i>Giải thích:</i> Đỉnh mây được ước tính bằng cách cộng độ dày tầng mây vào chân mây. Độ dày này tăng lên khi lượng mây tổng lớn và năng lượng đối lưu khả dụng (CAPE) cao.<br><br>
+        
+        <b>3. Quy trình hiệu chỉnh Tầm nhìn theo chuẩn METAR (Bias Correction):</b><br>
+        • <i>Vấn đề của mô hình:</i> Mô hình toàn cầu Open-Meteo thường cố định mức trần tầm nhìn ở 24.1km và dễ bị bóp thấp vô lý vào giữa trưa.<br>
+        • <i>Giải pháp hiệu chỉnh:</i> Giữ tầm nhìn tự nhiên của mô hình, đồng thời áp dụng ngưỡng tối thiểu $\\ge 10\\text{ km}$ vào ban ngày khô ráo ($RH < 85\\%$) và cộng bù trừ điểm sương để phản ánh đúng hiện tượng sương mù bức xạ về đêm tại VVTX.<br><br>
+        
+        <b>4. Thuật toán hiệu chỉnh Xác suất Mưa (PoP) & Nguy cơ Dông:</b><br>
+        • Sử dụng hàm kích hoạt phi tuyến tính <b>Sigmoid</b> kết hợp các trọng số độ ẩm các tầng (2m, 850hPa, 700hPa), chỉ số bất ổn định CAPE và vận tốc thẳng đứng ($w$).
+    </div>
+    """, unsafe_allow_html=True)
 
 filtered = future_forecasts[: days_to_show * 24]
 
