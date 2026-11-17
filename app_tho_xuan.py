@@ -7,7 +7,7 @@ WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - v4.14 (SO SÁN
 from __future__ import annotations
 
 import html
-import mathw
+import math
 import os
 import time
 from dataclasses import dataclass
