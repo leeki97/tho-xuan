@@ -1,13 +1,12 @@
 #!/usr/init/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.27
-(Diễn giải công thức bằng tiếng Việt rõ ràng, dễ hiểu & Thêm Sân bay Hòa Lạc)
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.28
+(Vá lỗi hiển thị thẻ HTML thô, sửa triệt để câu bị cụt & Thêm Sân bay Hòa Lạc)
 """
 
 from __future__ import annotations
 
-import html
 import math
 import time
 from dataclasses import dataclass
@@ -110,18 +109,6 @@ st.markdown(
     .stButton>button { 
         border-radius: 6px; 
         font-weight: 600; 
-    }
-    
-    .tab-content {
-        background: #ffffff;
-        padding: 22px;
-        border-radius: 8px;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
-        font-size: 14.5px;
-        line-height: 1.8;
-        color: #334155;
     }
 </style>
 """,
@@ -254,28 +241,28 @@ def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float
     current_synoptic = ""
     if lat >= 18.5:
         current_synoptic = (
-            f"<b>1. Phân tích hoàn lưu khí quyển & Hệ thống thời tiết tại {airport_name} (Bắc Bộ & Bắc Trung Bộ):</b><br>"
-            "• <b>Trường áp & Không khí lạnh:</b> Khu vực đang chịu chi phối của khối không khí lạnh tăng cường hoặc suy yếu lệch Đông, tạo ra sự chênh lệch áp suất và gió Đông Bắc đến Đông Nam thổi đều.<br>"
-            "• <b>Độ ẩm tầng giữa (mực 850hPa và 700hPa):</b> Theo dõi sát luồng ẩm từ vịnh Bắc Bộ thổi vào. Khi độ ẩm mực 850hPa vượt quá 80%, mây tầng thấp sẽ phát triển dày đặc về đêm và sáng.<br>"
-            "• <b>Hiện tượng sương mù:</b> Sương mù bức xạ thường xuất hiện vào nửa đêm và sáng sớm (từ 3h đến 7h) khi nhiệt độ không khí hạ xuống gần sát với điểm sương (chênh lệch dưới 1 độ C)."
+            f"**1. Phân tích hoàn lưu khí quyển & Hệ thống thời tiết tại {airport_name} (Bắc Bộ & Bắc Trung Bộ):**\n\n"
+            "- **Trường áp & Không khí lạnh:** Khu vực đang chịu chi phối của khối không khí lạnh tăng cường hoặc suy yếu lệch Đông, tạo ra sự chênh lệch áp suất và gió Đông Bắc đến Đông Nam thổi đều.\n"
+            "- **Độ ẩm tầng giữa (mực 850hPa và 700hPa):** Theo dõi sát luồng ẩm từ vịnh Bắc Bộ thổi vào. Khi độ ẩm mực 850hPa vượt quá 80%, mây tầng thấp sẽ phát triển dày đặc về đêm và sáng.\n"
+            "- **Hiện tượng sương mù:** Sương mù bức xạ thường xuất hiện vào nửa đêm và sáng sớm (từ 3h đến 7h) khi nhiệt độ không khí hạ xuống gần sát với điểm sương (chênh lệch dưới 1°C)."
         )
     elif 13.0 <= lat < 18.5:
         current_synoptic = (
-            f"<b>1. Phân tích hoàn lưu khí quyển tại {airport_name} (Trung Trung Bộ):</b><br>"
-            "• Chịu tác động trực tiếp của đới gió Đông trên cao kết hợp với không khí lạnh khuếch tán.<br>"
-            "• Mưa rào và mây dông tập trung chủ yếu về đêm và sáng sớm do địa hình chắn gió."
+            f"**1. Phân tích hoàn lưu khí quyển tại {airport_name} (Trung Trung Bộ):**\n\n"
+            "- Chịu tác động trực tiếp của đới gió Đông trên cao kết hợp với không khí lạnh khuếch tán.\n"
+            "- Mưa rào và mây dông tập trung chủ yếu về đêm và sáng sớm do địa hình chắn gió."
         )
     else:
         current_synoptic = (
-            f"<b>1. Phân tích hoàn lưu khí quyển tại {airport_name} (Nam Bộ & Tây Nguyên):</b><br>"
-            "• Chi phối bởi gió mùa hoặc gió tín phong ổn định; ban ngày nắng nóng tích tụ nhiệt lượng lớn dễ sinh mây đối lưu (mây Cb) gây mưa rào vào chiều tối."
+            f"**1. Phân tích hoàn lưu khí quyển tại {airport_name} (Nam Bộ & Tây Nguyên):**\n\n"
+            "- Chi phối bởi gió mùa hoặc gió tín phong ổn định; ban ngày nắng nóng tích tụ nhiệt lượng lớn dễ sinh mây đối lưu (mây Cb) gây mưa rào vào chiều tối."
         )
 
-    sea_info = "<br><br>• <b>Tác động từ Biển Đông:</b> Hơi ẩm từ biển thổi vào liên tục duy trì độ ẩm mặt đất cao, quyết định biên độ nhiệt ngày/đêm và độ cao chân mây tại sân bay.<br>"
-    upcoming_system = "<b>2. Nhận định xu thế:</b> Thời tiết ổn định trong ngắn hạn, cần chú ý thời điểm sáng sớm tầm nhìn bị giảm do sương mù hoặc mây thấp.<br>"
-    local_trend = f"<b>3. Biên độ nhiệt độ dự kiến tại {airport_name}:</b> Dao động từ <b>+{min_overall_temp:.0f}°C đến +{max_overall_temp:.0f}°C</b>."
+    sea_info = "\n\n- **Tác động từ Biển Đông:** Hơi ẩm từ biển thổi vào liên tục duy trì độ ẩm mặt đất cao, quyết định biên độ nhiệt ngày/đêm và độ cao chân mây tại sân bay."
+    upcoming_system = "\n\n**2. Nhận định xu thế:** Thời tiết ổn định trong ngắn hạn, cần chú ý thời điểm sáng sớm tầm nhìn bị giảm do sương mù hoặc mây thấp."
+    local_trend = f"\n\n**3. Biên độ nhiệt độ dự kiến tại {airport_name}:** Dao động từ **+{min_overall_temp:.0f}°C đến +{max_overall_temp:.0f}°C**."
 
-    return f"<div style='line-height: 1.7; font-size: 13.5px;'>{current_synoptic}{sea_info}<br>{upcoming_system}<br>{local_trend}</div>"
+    return current_synoptic + sea_info + upcoming_system + local_trend
 
 
 def clamp(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
@@ -700,69 +687,58 @@ def show_model_presentation_modal():
     
     tab1, tab2, tab3, tab4 = st.tabs([
         "📂 Nguồn số liệu đầu vào", 
-        "🧮 Công thức & Thuật toán tính toán", 
+        "🧮 Công thức & Thuật toán", 
         "🎯 Kết quả đạt được", 
         "🚀 Ứng dụng thực tế"
     ])
 
     with tab1:
-        st.markdown("""
-        <div class="tab-content">
-            <b>1. Hệ thống Mô hình Số trị Toàn cầu (NWPs):</b><br>
-            • Sử dụng API mô hình số trị độ phân giải cao <b>Open-Meteo</b>, kết hợp dữ liệu từ các trung tâm dự báo hàng đầu thế giới: <b>ECMWF</b> (Châu Âu), <b>GFS</b> (Mỹ) và <b>ICON</b> (Đức).<br>
-            • Cung cấp chuỗi dữ liệu dự báo 10 ngày với bước thời gian liên tục từng giờ, bao gồm các thông số bề mặt và các lớp khí quyển đẳng áp (850hPa, 700hPa).<br><br>
-            <b>2. Danh mục 21 biến khí tượng chuyên sâu được khai thác:</b><br>
-            • <i>Nhiệt độ & Điểm sương:</i> Nhiệt độ không khí ở độ cao 2 mét, nhiệt độ điểm sương.<br>
-            • <i>Hệ thống mây:</i> Lượng mây tổng cộng, lượng mây tầng thấp, mây tầng trung và mây tầng cao.<br>
-            • <i>Động lực học & Đối lưu:</i> Năng lượng đối lưu khả dụng (CAPE), vận tốc chuyển động thẳng đứng tại mực 700hPa.<br>
-            • <i>Độ ẩm tầng cao:</i> Độ ẩm tương đối tại mực 850hPa và 700hPa.<br>
-            • <i>Trường gió & Khí áp:</i> Tốc độ gió 10m, hướng gió, gió giật mạnh, áp suất khí quyển bề mặt, tầm nhìn xa và xác suất mưa.
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            "**1. Hệ thống Mô hình Số trị Toàn cầu (NWPs):**\n\n"
+            "- Sử dụng API mô hình số trị độ phân giải cao **Open-Meteo**, kết hợp dữ liệu từ các trung tâm dự báo hàng đầu thế giới: **ECMWF** (Châu Âu), **GFS** (Mỹ) và **ICON** (Đức).\n"
+            "- Cung cấp chuỗi dữ liệu dự báo 10 ngày với bước thời gian liên tục từng giờ, bao gồm các thông số bề mặt và các lớp khí quyển đẳng áp (850hPa, 700hPa).\n\n"
+            "**2. Danh mục 21 biến khí tượng chuyên sâu được khai thác:**\n"
+            "- *Nhiệt độ & Điểm sương:* Nhiệt độ không khí ở độ cao 2 mét (`temperature_2m`), nhiệt độ điểm sương (`dew_point_2m`).\n"
+            "- *Hệ thống mây:* Lượng mây tổng cộng (`cloud_cover`), lượng mây tầng thấp, mây tầng trung và mây tầng cao.\n"
+            "- *Động lực học & Đối lưu:* Năng lượng đối lưu khả dụng (`cape`), vận tốc chuyển động thẳng đứng tại mực 700hPa (`vertical_velocity_700hPa`).\n"
+            "- *Độ ẩm tầng cao:* Độ ẩm tương đối tại mực 850hPa và 700hPa.\n"
+            "- *Trường gió & Khí áp:* Tốc độ gió 10m, hướng gió, gió giật mạnh, áp suất khí quyển bề mặt, tầm nhìn xa và xác suất mưa."
+        )
 
     with tab2:
-        st.markdown("""
-        <div class="tab-content">
-            <b>1. Phương pháp tính độ cao Chân mây (Công thức Espy):</b><br>
-            • <i>Cách tính bằng lời:</i> Lấy Nhiệt độ mặt đất trừ đi Nhiệt độ điểm sương, sau đó chia cho 2.5 rồi nhân với 1,000 để ra độ cao tính bằng feet (ft).<br>
-            • <i>Giải thích vật lý:</i> Khi không khí ẩm bốc lên cao và lạnh dần theo chiều thẳng đứng, nhiệt độ và điểm sương sẽ gặp nhau (hội tụ) với tốc độ khoảng 2.5 độ C cho mỗi 1,000 ft dâng lên. Điểm đó chính là nơi mây bắt đầu hình thành.<br><br>
-            
-            <b>2. Phương pháp tính độ cao Đỉnh mây:</b><br>
-            • <i>Cách tính bằng lời:</i> Đỉnh mây = Độ cao chân mây + 1,800 ft cơ bản + (Lượng mây tổng nhân với 25) + (Chỉ số năng lượng đối lưu CAPE nhân với 0.5, tối đa lấy 1,000).<br>
-            • <i>Ý nghĩa:</i> Giúp ước tính độ dày của tầng mây. Khi bầu trời nhiều mây và có dòng đối lưu mạnh (CAPE cao), tầng mây sẽ dày lên và đỉnh mây vươn lên cao hơn hẳn so với chân mây.<br><br>
-            
-            <b>3. Thuật toán hiệu chỉnh Tầm nhìn theo chuẩn METAR:</b><br>
-            • <i>Vấn đề:</i> Mô hình toàn cầu thường bị giới hạn cứng ở 24.1 km và hay đánh giá tầm nhìn thấp vô lý vào ban trưa.<br>
-            • <i>Giải pháp:</i> Hệ thống tự động kiểm tra: Vào ban ngày trời khô ráo (độ ẩm dưới 85%), tầm nhìn được ép tối thiểu từ 10 km trở lên. Ngược lại, vào ban đêm nếu độ ẩm cao và điểm sương sát nhiệt độ, hệ thống sẽ tự động hạ thấp tầm nhìn để phản ánh đúng hiện tượng sương mù thực tế tại sân bay.<br><br>
-            
-            <b>4. Thuật toán tính Xác suất Mưa (PoP) & Nguy cơ Dông:</b><br>
-            • Sử dụng hàm toán học Sigmoid kết hợp đồng thời nhiều yếu tố: xác suất của mô hình gốc, độ ẩm ở cả 3 tầng (mặt đất, 850hPa, 700hPa), chỉ số năng lượng dông sét CAPE và vận tốc gió đứng để lọc bỏ các dự báo mưa ảo, cho ra con số xác suất mưa thực tế cực kỳ chính xác.
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            "**1. Phương pháp tính độ cao Chân mây (Công thức Espy):**\n\n"
+            "- *Cách tính:* Lấy Nhiệt độ mặt đất trừ đi Nhiệt độ điểm sương, sau đó chia cho 2.5 rồi nhân với 1,000 để ra độ cao tính bằng feet (ft).\n"
+            "- *Giải thích vật lý:* Khi không khí ẩm bốc lên cao và lạnh dần theo chiều thẳng đứng, nhiệt độ và điểm sương sẽ gặp nhau (hội tụ) với tốc độ khoảng 2.5°C cho mỗi 1,000 ft dâng lên. Điểm đó chính là nơi mây bắt đầu hình thành.\n\n"
+            "**2. Phương pháp tính độ cao Đỉnh mây:**\n\n"
+            "- *Cách tính:* Đỉnh mây = Độ cao chân mây + 1,800 ft cơ bản + (Lượng mây tổng nhân với 25) + (Chỉ số năng lượng đối lưu CAPE nhân với 0.5, tối đa lấy 1,000).\n"
+            "- *Ý nghĩa:* Giúp ước tính độ dày của tầng mây. Khi bầu trời nhiều mây và có dòng đối lưu mạnh (CAPE cao), tầng mây sẽ dày lên và đỉnh mây vươn lên cao hơn hẳn so với chân mây.\n\n"
+            "**3. Thuật toán hiệu chỉnh Tầm nhìn theo chuẩn METAR:**\n\n"
+            "- *Vấn đề:* Mô hình toàn cầu thường bị giới hạn cứng ở 24.1 km và hay đánh giá tầm nhìn thấp vô lý vào ban trưa.\n"
+            "- *Giải pháp:* Hệ thống tự động kiểm tra: Vào ban ngày trời khô ráo (độ ẩm dưới 85%), tầm nhìn được ép tối thiểu từ 10 km trở lên. Ngược lại, vào ban đêm nếu độ ẩm cao và điểm sương sát nhiệt độ, hệ thống sẽ tự động hạ thấp tầm nhìn để phản ánh đúng hiện tượng sương mù thực tế tại sân bay.\n\n"
+            "**4. Thuật toán tính Xác suất Mưa (PoP) & Nguy cơ Dông:**\n\n"
+            "- Sử dụng hàm toán học Sigmoid kết hợp đồng thời nhiều yếu tố: xác suất của mô hình gốc, độ ẩm ở cả 3 tầng (mặt đất, 850hPa, 700hPa), chỉ số năng lượng dông sét CAPE và vận tốc gió đứng để lọc bỏ các dự báo mưa ảo, cho ra con số xác suất mưa thực tế cực kỳ chính xác."
+        )
 
     with tab3:
-        st.markdown("""
-        <div class="tab-content">
-            <b>1. Khắc phục sai số cục địa:</b><br>
-            • Loại bỏ hoàn toàn các lỗi dự báo lệch pha thời gian hoặc sai lệch lượng mưa của các mô hình toàn cầu nhờ bộ lọc chuyên biệt cho từng vùng sân bay.<br>
-            • Triệt tiêu hoàn toàn lỗi logic (ví dụ: đỉnh mây hiển thị bằng 0 hoặc tầm nhìn bất hợp lý).<br><br>
-            <b>2. Giao diện trực quan hóa:</b><br>
-            • Bảng dữ liệu ma trận dạng RP5 giúp quan sát đồng thời 10 ngày từng giờ một cách mạch lạc.<br>
-            • Hệ thống biểu đồ tương tác cao cấp hỗ trợ phóng to, thu nhỏ và trượt xem linh hoạt trên cả điện thoại lẫn máy tính.
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            "**1. Khắc phục sai số cục địa:**\n\n"
+            "- Loại bỏ hoàn toàn các lỗi dự báo lệch pha thời gian hoặc sai lệch lượng mưa của các mô hình toàn cầu nhờ bộ lọc chuyên biệt cho từng vùng sân bay.\n"
+            "- Triệt tiêu hoàn toàn lỗi logic (ví dụ: đỉnh mây hiển thị bằng 0 hoặc tầm nhìn bất hợp lý).\n\n"
+            "**2. Giao diện trực quan hóa:**\n\n"
+            "- Bảng dữ liệu ma trận dạng RP5 giúp quan sát đồng thời 10 ngày từng giờ một cách mạch lạc.\n"
+            "- Hệ thống biểu đồ tương tác cao cấp hỗ trợ phóng to, thu nhỏ và trượt xem linh hoạt trên cả điện thoại lẫn máy tính."
+        )
 
     with tab4:
-        st.markdown("""
-        <div class="tab-content">
-            <b>1. Ứng dụng trong Khí tượng Hàng không:</b><br>
-            • Cung cấp các thông số cốt lõi (chân mây, đỉnh mây, tầm nhìn, gió giật) giúp tổ bay, đài kiểm soát không lưu và các hãng hàng không lập kế hoạch cất/hạ cánh an toàn theo đúng quy chuẩn khai thác tối thiểu (minimums).<br>
-            • Cảnh báo sớm các hình thái thời tiết nguy hiểm như dông sét, sương mù dày và gió mạnh.<br><br>
-            <b>2. Khả năng mở rộng hệ thống:</b><br>
-            • Dễ dàng tích hợp thêm các sân bay dân dụng và quân sự khác trên toàn quốc.<br>
-            • Nền tảng sẵn sàng kết nối tự động cảnh báo qua Telegram hoặc Email khi thời tiết chạm ngưỡng nguy hiểm.
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            "**1. Ứng dụng trong Khí tượng Hàng không:**\n\n"
+            "- Cung cấp các thông số cốt lõi (chân mây, đỉnh mây, tầm nhìn, gió giật) giúp tổ bay, đài kiểm soát không lưu và các hãng hàng không lập kế hoạch cất/hạ cánh an toàn theo đúng quy chuẩn khai thác tối thiểu (minimums).\n"
+            "- Cảnh báo sớm các hình thái thời tiết nguy hiểm như dông sét, sương mù dày và gió mạnh.\n\n"
+            "**2. Khả năng mở rộng hệ thống:**\n\n"
+            "- Dễ dàng tích hợp thêm các sân bay dân dụng và quân sự khác trên toàn quốc.\n"
+            "- Nền tảng sẵn sàng kết nối tự động cảnh báo qua Telegram hoặc Email khi thời tiết chạm ngưỡng nguy hiểm."
+        )
     
     if st.button("Đóng bảng thuyết trình", use_container_width=True):
         st.rerun()
@@ -863,7 +839,7 @@ st.markdown(
 
 with st.expander("🌐 Yếu tố ảnh hưởng & Bản tin Phân tích Hệ thống Thời tiết Chuyên sâu", expanded=False):
     synoptic_outlook_html = generate_10_day_synoptic_outlook(future_forecasts[:240], LATITUDE, selected_airport_name)
-    st.markdown(synoptic_outlook_html, unsafe_allow_html=True)
+    st.markdown(synoptic_outlook_html)
 
 filtered = future_forecasts[: days_to_show * 24]
 
