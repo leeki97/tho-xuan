@@ -7,7 +7,7 @@ WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - v4.14 (SO SÁN
 from __future__ import annotations
 
 import html
-import math
+import mathw
 import os
 import time
 from dataclasses import dataclass
@@ -345,8 +345,10 @@ def calibrate_visibility_and_wind(fc: HourlyForecast, lat: float, lon: float, wi
     rain_amount = max(fc.precipitation, fc.rain, fc.showers)
     wind_kmh = fc.wind_speed_10m if wind_unit == "kmh" else fc.wind_speed_10m * 3.6
 
+    # Quy tắc ban ngày (07h - 17h): Nếu trời khô ráo, lấy tầm nhìn gốc của mô hình nhưng đảm bảo tối thiểu 10km và không bị bóp thấp vô lý
     if 7 <= hour <= 17 and rain_amount < 0.3 and fc.relative_humidity_2m < 85:
-        fc.visibility_m = 24140.0
+        # Giữ tầm nhìn tự nhiên của mô hình nhưng không thấp hơn 10km vào ban ngày khô ráo
+        fc.visibility_m = max(fc.visibility_raw, 10000.0)
         return
 
     effective_rain = rain_amount if rain_amount >= 0.3 else 0.0
