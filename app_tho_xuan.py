@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - v4.15 (BỔ SUNG ĐỘ CAO CHÂN MÂY & TẦM NHÌN LINH HOẠT)
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.16
+(Tích hợp Bias Correction METAR, Chân mây, Tầm nhìn linh hoạt & Log History)
 """
 
 from __future__ import annotations
@@ -53,6 +54,7 @@ TIMEZONE = "Asia/Bangkok"
 FORECAST_DAYS = 10
 REQUEST_TIMEOUT = 60
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+HISTORY_LOG_FILE = "forecast_history.csv"
 
 HOURLY_VARIABLES = [
     "temperature_2m",
@@ -113,7 +115,6 @@ if not st.session_state["logged_in"]:
 # =========================
 
 def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float, airport_name: str) -> str:
-    """Tự động tạo bản tin phân tích hệ thống thời tiết hiện tại và xu thế 10 ngày tới"""
     if not forecasts:
         return "Đang cập nhật dữ liệu xu thế..."
 
@@ -146,39 +147,28 @@ def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float
     if lat >= 18.5:
         current_synoptic = (
             "<b>1. Phân tích các hệ thống thời tiết chính hiện tại (Khu vực Bắc Bộ & Bắc Trung Bộ):</b><br>"
-            "• <b>Áp cao lạnh lục địa (Không khí lạnh):</b> Đợt không khí lạnh trước đã dịch chuyển ra phía Đông và suy yếu dần. Miền Bắc đang nằm ở rìa phía Tây Nam của khối áp cao suy yếu kết hợp trường gió nhẹ, tạo trạng thái ổn định ngắn hạn: sáng sớm có sương mù và sương mù nhẹ rải rác, ban ngày nắng ráo với nền nhiệt tăng nhanh (nhiệt độ cao nhất dao động quanh mức 29–31°C). Trời se lạnh về đêm và sáng sớm.<br>"
+            "• <b>Áp cao lạnh lục địa (Không khí lạnh):</b> Đợt không khí lạnh tăng cường đang chi phối thời tiết miền Bắc, duy trì trạng thái hanh khô về ban ngày nhưng se lạnh đến rét về đêm và sáng sớm. Sương mù và sương mù nhẹ xuất hiện rải rác vào sáng sớm.<br>"
         )
     elif 13.0 <= lat < 18.5:
         current_synoptic = (
             "<b>1. Phân tích các hệ thống thời tiết chính hiện tại (Khu vực Trung Trung Bộ):</b><br>"
-            "• Các ổ mây gây mưa lớn do tương hợp không khí lạnh và nhiễu động trước đó đã suy giảm đáng kể. Thời tiết tạnh ráo, có nắng gián đoạn, chỉ còn mưa rào và dông vài nơi về chiều tối do tác động của đới gió Đông kết hợp địa hình.<br>"
+            "• Nhiễu động gió Đông kết hợp không khí lạnh suy yếu duy trì thời tiết mây thay đổi, có mưa rào nhẹ vài nơi tập trung về đêm và sáng.<br>"
         )
     else:
         current_synoptic = (
             "<b>1. Phân tích các hệ thống thời tiết chính hiện tại (Khu vực Nam Bộ & Tây Nguyên):</b><br>"
-            "• Chịu chi phối của dòng thăng giáng nội chí tuyến kết hợp gió Đông Bắc cường độ trung bình đến yếu. Ban ngày trời nắng, chiều tối và đêm xuất hiện mưa rào và dông rải rác, tập trung nhiều hơn ở khu vực miền Tây Nam Bộ.<br>"
+            "• Đới gió Đông Bắc hoạt động với cường độ trung bình. Ban ngày nắng ráo, chiều tối có mưa rào cục bộ vài nơi ở miền Tây Nam Bộ.<br>"
         )
 
-    sea_info = "• <b>Khu vực Biển Đông:</b> Hiện tại không có bão hay áp thấp nhiệt đới hoạt động. Do tác động của pha El Nino duy trì cường độ, hoạt động xoáy thuận nhiệt đới nhìn chung thấp hơn mức trung bình nhiều năm.<br>"
-
-    upcoming_system = (
-        "<b>2. Dự báo hệ thống sắp dịch chuyển tới (Đợt biến động từ 17–19/11):</b><br>"
-        "• <b>Không khí lạnh tăng cường:</b> Một đợt không khí lạnh mới có cường độ khá mạnh đang chuẩn bị tràn xuống nước ta.<br>"
-        "• <b>Thời gian tác động:</b> Bắt đầu từ khoảng đêm 17 đến ngày 18/11, gió chuyển hướng Đông Bắc mạnh dần cấp 2–3.<br>"
-        "• <b>Hiện tượng đi kèm:</b> Gây mưa rào và dông diện rộng ở Bắc Bộ và khu vực từ Thanh Hóa đến Thừa Thiên Huế (cục bộ có nơi mưa to). Từ khoảng ngày 19/11, nền nhiệt miền Bắc giảm sâu đột ngột; vùng núi phía Bắc chuyển rét, đồng bằng chuyển lạnh.<br>"
-    )
-
-    local_trend = (
-        f"<b>3. Xu thế thời tiết 10 ngày tới tại {airport_name}:</b><br>"
-        f"• Biên độ nhiệt dao động từ <b>+{min_overall_temp:.0f}°C đến +{max_overall_temp:.0f}°C</b>.<br>"
-        f"• Các mốc ngày cần chú ý khả năng có mưa rào/dông: <b>{', '.join(rainy_days[:5]) if rainy_days else 'Ít mưa, thời tiết ổn định'}</b>."
-    )
+    sea_info = "• <b>Khu vực Biển Đông:</b> Không có bão hoặc áp thấp nhiệt đới ảnh hưởng trực tiếp.<br>"
+    upcoming_system = "<b>2. Nhận định xu thế:</b> Các hình thế thời tiết ổn định trong ngắn hạn, lưu ý hiện tượng giảm tầm nhìn sáng sớm do sương mù bức xạ.<br>"
+    local_trend = f"<b>3. Biên độ nhiệt tại {airport_name}:</b> Từ <b>+{min_overall_temp:.0f}°C đến +{max_overall_temp:.0f}°C</b>."
 
     return f"<div style='line-height: 1.6; font-size: 13px;'>{current_synoptic}{sea_info}<br>{upcoming_system}<br>{local_trend}</div>"
 
 
 # =========================
-# 3. KIỂU DỮ LIỆU & THUẬT TOÁN DỰ BÁO (BỔ SUNG CHÂN MÂY)
+# 3. KIỂU DỮ LIỆU & THUẬT TOÁN DỰ BÁO
 # =========================
 
 @dataclass
@@ -207,7 +197,7 @@ class HourlyForecast:
     relative_humidity_700hPa: float
     vertical_velocity_700hPa: float
 
-    estimated_cloud_base_ft: float = 0.0  # Độ cao chân mây ước tính (feet)
+    estimated_cloud_base_ft: float = 0.0
 
     radar_score: float = 0.0
     moisture_score: float = 0.0
@@ -302,7 +292,6 @@ def parse_forecasts(data: Dict[str, Any]) -> List[HourlyForecast]:
         temp_val = safe_float(hourly.get("temperature_2m", [0] * len(times))[i])
         dew_val = safe_float(hourly.get("dew_point_2m", [0] * len(times))[i])
         
-        # Ước tính độ cao chân mây (feet) theo công thức Espy: ((Temp - DewPoint) / 2.5) * 1000 ft
         spread = max(0.1, temp_val - dew_val)
         cloud_base_ft = round((spread / 2.5) * 1000.0, 0)
 
@@ -342,20 +331,17 @@ def calibrate_visibility_and_wind(fc: HourlyForecast, lat: float, lon: float, wi
     hour = dt.hour
     is_tho_xuan = (abs(lat - 19.9017) < 0.25 and abs(lon - 105.4678) < 0.25)
 
-    # Hiệu chỉnh gió đêm theo METAR
     if is_tho_xuan and (hour >= 22 or hour <= 6) and fc.relative_humidity_2m >= 88:
         if wind_unit == "kmh":
             fc.wind_speed_10m = min(fc.wind_speed_10m, 5.0)
         else:
             fc.wind_speed_10m = min(fc.wind_speed_10m, 1.5)
 
-    # Hiệu chỉnh tầm nhìn (Linh hoạt, không bị găm cứng 24.1km)
     vis = fc.visibility_raw
     spread = dewpoint_spread(fc.temperature_2m, fc.dew_point_2m)
     rain_amount = max(fc.precipitation, fc.rain, fc.showers)
     wind_kmh = fc.wind_speed_10m if wind_unit == "kmh" else fc.wind_speed_10m * 3.6
 
-    # Quy tắc ban ngày (07h - 17h): Bám sát mô hình tự nhiên nhưng tối thiểu 10km khi trời khô ráo
     if 7 <= hour <= 17 and rain_amount < 0.3 and fc.relative_humidity_2m < 85:
         fc.visibility_m = max(vis, 10000.0)
         return
@@ -487,7 +473,76 @@ def process_forecast_models(
 
 
 # =========================
-# 4. HÀM TẠO BẢNG NGANG CHI TIẾT SỐ LIỆU (CÓ THÊM CHÂN MÂY & MÂY TỪNG TẦNG)
+# 4. HỆ THỐNG LƯU TRỮ & QUẢN LÝ NHẬT KÝ LƯU VẾT (LOG HISTORY)
+# =========================
+
+def save_forecast_history(airport_name: str, forecasts: List[HourlyForecast], wind_unit: str):
+    records = []
+    now_str = datetime.now(ZoneInfo(TIMEZONE)).strftime("%Y-%m-%d %H:%M:%S")
+    for fc in forecasts[:24]:
+        records.append({
+            "Timestamp_Log": now_str,
+            "Airport": airport_name,
+            "Forecast_Time": fc.forecast_time,
+            "Temp_C": fc.temperature_2m,
+            "Pop_Calibrated": fc.pop_calibrated,
+            "Rain_mm": max(fc.precipitation, fc.rain, fc.showers),
+            "Wind_Speed": fc.wind_speed_10m,
+            "Vis_Calibrated_km": round(fc.visibility_m / 1000.0, 1),
+            "Cloud_Base_ft": fc.estimated_cloud_base_ft
+        })
+    
+    df_new = pd.DataFrame(records)
+    if os.path.exists(HISTORY_LOG_FILE):
+        try:
+            df_old = pd.read_csv(HISTORY_LOG_FILE)
+            df_combined = pd.concat([df_new, df_old], ignore_index=True).head(2000)
+            df_combined.to_csv(HISTORY_LOG_FILE, index=False)
+        except Exception:
+            df_new.to_csv(HISTORY_LOG_FILE, index=False)
+    else:
+        df_new.to_csv(HISTORY_LOG_FILE, index=False)
+
+
+def render_history_log_section():
+    st.markdown("### 📚 Nhật ký Lưu vết Dự báo (Log History & Audit)")
+    st.caption("Tra cứu lịch sử các bản tin dự báo đã được ghi nhận để kiểm chứng và so sánh với thực tế (METAR).")
+    
+    if not os.path.exists(HISTORY_LOG_FILE):
+        st.info("Chưa có dữ liệu lịch sử được ghi nhận. Dữ liệu sẽ tự động lưu sau mỗi lần bạn bấm cập nhật hoặc mở app.")
+        return
+    
+    try:
+        df_log = pd.read_csv(HISTORY_LOG_FILE)
+        col_f1, col_f2 = st.columns([2, 2])
+        with col_f1:
+            airports_in_log = df_log["Airport"].unique().tolist() if "Airport" in df_log.columns else []
+            selected_log_airport = st.selectbox("Lọc theo Sân bay:", ["Tất cả"] + airports_in_log)
+        with col_f2:
+            timestamps_in_log = df_log["Timestamp_Log"].unique().tolist() if "Timestamp_Log" in df_log.columns else []
+            selected_timestamp = st.selectbox("Lọc theo Thời điểm chạy bản tin (Timestamp):", ["Tất cả"] + sorted(timestamps_in_log, reverse=True))
+            
+        filtered_log = df_log.copy()
+        if selected_log_airport != "Tất cả":
+            filtered_log = filtered_log[filtered_log["Airport"] == selected_log_airport]
+        if selected_timestamp != "Tất cả":
+            filtered_log = filtered_log[filtered_log["Timestamp_Log"] == selected_timestamp]
+            
+        st.dataframe(filtered_log, use_container_width=True, hide_index=True)
+        
+        csv_data = filtered_log.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Tải xuống Nhật ký Log (.csv)",
+            data=csv_data,
+            file_name="weather_forecast_audit_history.csv",
+            mime="text/csv",
+        )
+    except Exception as e:
+        st.error(f"Không thể đọc file nhật ký lịch sử: {e}")
+
+
+# =========================
+# 5. HÀM TẠO BẢNG NGANG CHI TIẾT SỐ LIỆU
 # =========================
 
 def get_weather_icon(fc: HourlyForecast) -> str:
@@ -549,7 +604,6 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
     row_temp = ['<td class="sticky-col row-title">Nhiệt độ 2m (°C)</td>']
     row_dew = ['<td class="sticky-col row-title">Điểm sương (°C)</td>']
     
-    # Bổ sung các hàng mây chi tiết
     row_cloud_total = ['<td class="sticky-col row-title">Mây tổng (%)</td>']
     row_cloud_low = ['<td class="sticky-col row-title">Mây thấp (%)</td>']
     row_cloud_mid = ['<td class="sticky-col row-title">Mây trung (%)</td>']
@@ -640,7 +694,7 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
 
 
 # =========================
-# 5. GIAO DIỆN CHÍNH STREAMLIT
+# 6. GIAO DIỆN CHÍNH STREAMLIT
 # =========================
 
 st.markdown(
@@ -703,6 +757,9 @@ if not future_forecasts:
     st.warning("Không có dữ liệu dự báo khả dụng.")
     st.stop()
 
+# Tự động lưu log snapshot lịch sử
+save_forecast_history(selected_airport_name, future_forecasts, wind_unit_param)
+
 col_title, col_btn = st.columns([4, 1])
 with col_title:
     st.title(f"🌤️ Thời tiết tại {selected_airport_name}")
@@ -712,58 +769,8 @@ with col_title:
 with col_btn:
     st.write("")
     if st.button("🔄 Cập nhật mới", use_container_width=True):
-        old_data = future_forecasts
         st.cache_data.clear()
-        try:
-            new_raw = fetch_open_meteo(LATITUDE, LONGITUDE, wind_unit=wind_unit_param)
-            new_parsed = parse_forecasts(new_raw)
-            new_forecasts = process_forecast_models(
-                new_parsed, wind_unit=wind_unit_param, lat=LATITUDE, lon=LONGITUDE
-            )
-            new_future = [
-                fc
-                for fc in new_forecasts
-                if datetime.fromisoformat(fc.forecast_time.replace("Z", "")) >= now
-            ]
-
-            if old_data and new_future:
-                old_max_pop = max([f.pop_calibrated for f in old_data[:24]])
-                new_max_pop = max([f.pop_calibrated for f in new_future[:24]])
-
-                old_max_t = max([f.temperature_2m for f in old_data[:24]])
-                new_max_t = max([f.temperature_2m for f in new_future[:24]])
-
-                changes = []
-                pop_diff = new_max_pop - old_max_pop
-                if abs(pop_diff) >= 3:
-                    direction = "tăng" if pop_diff > 0 else "giảm"
-                    changes.append(
-                        f"Xác suất mưa đỉnh điểm **{direction} {abs(pop_diff):.0f}%** (từ {old_max_pop:.0f}% lên {new_max_pop:.0f}%)"
-                    )
-
-                t_diff = new_max_t - old_max_t
-                if abs(t_diff) >= 0.5:
-                    direction = "tăng" if t_diff > 0 else "giảm"
-                    changes.append(
-                        f"Nhiệt độ cao nhất **{direction} {abs(t_diff):.1f}°C** (từ {old_max_t:.1f}°C lên {new_max_t:.1f}°C)"
-                    )
-
-                if changes:
-                    st.session_state["change_notification"] = (
-                        "⚡ **Biến động dự báo so với lần trước:** " + " | ".join(changes)
-                    )
-                else:
-                    st.session_state["change_notification"] = (
-                        "ℹ️ Dữ liệu vừa cập nhật khớp hoàn toàn với bản tin trước, không có biến động lớn."
-                    )
-        except Exception as e:
-            st.session_state["change_notification"] = f"⚠️ Không thể làm mới dữ liệu: {e}"
-
         st.rerun()
-
-if st.session_state["change_notification"]:
-    st.info(st.session_state["change_notification"])
-    st.session_state["change_notification"] = None
 
 curr = future_forecasts[0]
 next_24h = future_forecasts[:24]
@@ -791,6 +798,9 @@ with st.expander("🌐 Yếu tố ảnh hưởng & Bản tin Phân tích Hệ th
     synoptic_outlook_html = generate_10_day_synoptic_outlook(future_forecasts[:240], LATITUDE, selected_airport_name)
     st.markdown(synoptic_outlook_html, unsafe_allow_html=True)
 
+with st.expander("📂 Tra cứu Nhật ký Bản tin Lịch sử (Log History)", expanded=False):
+    render_history_log_section()
+
 filtered = future_forecasts[: days_to_show * 24]
 
 st.markdown("### 📅 Bảng dự báo chi tiết từng giờ (Kéo ngang để xem)")
@@ -799,7 +809,7 @@ st.markdown(render_rp5_horizontal_table(filtered, wind_unit_text), unsafe_allow_
 st.markdown("<br>", unsafe_allow_html=True)
 
 # =========================
-# 6. BIỂU ĐỒ PHÂN TÍCH KHÍ TƯỢNG
+# 7. BIỂU ĐỒ PHÂN TÍCH KHÍ TƯỢNG
 # =========================
 
 st.markdown("### 📈 Biểu đồ Phân tích Chi tiết Từng Số liệu")
