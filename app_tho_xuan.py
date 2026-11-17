@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - TÍCH HỢP BẢN TIN SYNOPTIC CHUYÊN SÂU
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - TÍCH HỢP HIỆU CHỈNH TẦM NHÌN VVTX (v4.11)
 """
 
 from __future__ import annotations
@@ -43,7 +43,6 @@ AIRPORT_DATABASE = {
     "Sân bay Gia Lâm (VVGL)": {"lat": 21.0420, "lon": 105.8920},
     "Sân bay Kép (Bắc Giang)": {"lat": 21.3650, "lon": 106.2650},
     "Sân bay Biên Hòa (Đồng Nai)": {"lat": 10.9620, "lon": 106.8630},
-    "Sân bay Tân Sơn Nhất (VVTS)": {"lat": 10.8188,"lon": 106.6520},
     "Sân bay Yên Bái": {"lat": 21.7167, "lon": 104.8833},
     "Sân bay Móng Cái (Quảng Ninh)": {"lat": 21.5200, "lon": 107.9700},
     "Sân bay Phan Rang (Ninh Thuận)": {"lat": 11.5600, "lon": 108.9800},
@@ -118,7 +117,6 @@ def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float
     if not forecasts:
         return "Đang cập nhật dữ liệu xu thế..."
 
-    # Thống kê biên độ nhiệt và ngày mưa từ dữ liệu thực tế
     daily_summary = {}
     for fc in forecasts:
         dt = datetime.fromisoformat(fc.forecast_time.replace("Z", ""))
@@ -144,7 +142,6 @@ def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float
         if max_pop >= 50 or total_rain >= 2.0:
             rainy_days.append(day)
 
-    # Nội dung phân tích hệ thống thời tiết hiện tại theo vùng
     current_synoptic = ""
     if lat >= 18.5:
         current_synoptic = (
@@ -162,10 +159,8 @@ def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float
             "• Chịu chi phối của dòng thăng giáng nội chí tuyến kết hợp gió Đông Bắc cường độ trung bình đến yếu. Ban ngày trời nắng, chiều tối và đêm xuất hiện mưa rào và dông rải rác, tập trung nhiều hơn ở khu vực miền Tây Nam Bộ.<br>"
         )
 
-    # Thông tin chung Biển Đông
     sea_info = "• <b>Khu vực Biển Đông:</b> Hiện tại không có bão hay áp thấp nhiệt đới hoạt động. Do tác động của pha El Nino duy trì cường độ, hoạt động xoáy thuận nhiệt đới nhìn chung thấp hơn mức trung bình nhiều năm.<br>"
 
-    # Dự báo hệ thống sắp dịch chuyển tới (17-19/11)
     upcoming_system = (
         "<b>2. Dự báo hệ thống sắp dịch chuyển tới (Đợt biến động từ 17–19/11):</b><br>"
         "• <b>Không khí lạnh tăng cường:</b> Một đợt không khí lạnh mới có cường độ khá mạnh đang chuẩn bị tràn xuống nước ta.<br>"
@@ -173,7 +168,6 @@ def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float
         "• <b>Hiện tượng đi kèm:</b> Gây mưa rào và dông diện rộng ở Bắc Bộ và khu vực từ Thanh Hóa đến Thừa Thiên Huế (cục bộ có nơi mưa to). Từ khoảng ngày 19/11, nền nhiệt miền Bắc giảm sâu đột ngột; vùng núi phía Bắc chuyển rét, đồng bằng chuyển lạnh.<br>"
     )
 
-    # Xu thế 10 ngày tại sân bay được chọn
     local_trend = (
         f"<b>3. Xu thế thời tiết 10 ngày tới tại {airport_name}:</b><br>"
         f"• Biên độ nhiệt dao động từ <b>+{min_overall_temp:.0f}°C đến +{max_overall_temp:.0f}°C</b>.<br>"
@@ -330,8 +324,49 @@ def parse_forecasts(data: Dict[str, Any]) -> List[HourlyForecast]:
     return forecasts
 
 
-def process_forecast_models(forecasts: List[HourlyForecast], wind_unit: str = "kmh") -> List[HourlyForecast]:
+def calibrate_visibility_vvtx(fc: HourlyForecast, lat: float, lon: float, wind_unit: str = "kmh") -> float:
+    """
+    Hiệu chỉnh tầm nhìn (Bias Correction) khắc phục sai số mô hình hạ thấp tầm nhìn quá mức
+    tại khu vực Sân bay Thọ Xuân (VVTX) và lân cận.
+    """
+    vis = fc.visibility_m
+    spread = dewpoint_spread(fc.temperature_2m, fc.dew_point_2m)
+    rain_amount = max(fc.precipitation, fc.rain, fc.showers)
+    wind_kmh = fc.wind_speed_10m if wind_unit == "kmh" else fc.wind_speed_10m * 3.6
+
+    # Kiểm tra tọa độ khu vực Sân bay Thọ Xuân (19.9017, 105.4678)
+    is_tho_xuan = (abs(lat - 19.9017) < 0.25 and abs(lon - 105.4678) < 0.25)
+
+    # Nếu không mưa lớn (rain < 0.5mm) và độ chênh nhiệt độ - điểm sương > 1.8°C (chưa bão hòa sương mù thật)
+    if rain_amount < 0.5 and spread > 1.8:
+        if is_tho_xuan:
+            # Bù sai số thiên thấp đặc trưng tại Thọ Xuân
+            if spread >= 3.5 and fc.relative_humidity_2m < 85:
+                vis += 3000.0  # Cộng bù +3.0 km khi trời khá ráo
+            elif spread >= 2.2:
+                vis += 2000.0  # Cộng bù +2.0 km
+            else:
+                vis += 1200.0  # Cộng bù +1.2 km
+            
+            # Nếu gió bề mặt >= 8 km/h giúp khuếch tán lớp mù bề mặt tốt hơn
+            if wind_kmh >= 8.0:
+                vis += 1000.0
+        else:
+            # Hiệu chỉnh nhẹ (+1.0 km) cho các trạm khác khi mô hình báo thấp vô lý lúc trời khô
+            if spread >= 3.0 and vis < 10000.0:
+                vis += 1000.0
+
+    # Giới hạn trần tầm nhìn tối đa theo chuẩn quan trắc hàng không (24.1 km hoặc 10+ km)
+    return min(vis, 24140.0)
+
+
+def process_forecast_models(
+    forecasts: List[HourlyForecast], wind_unit: str = "kmh", lat: float = 0.0, lon: float = 0.0
+) -> List[HourlyForecast]:
     for fc in forecasts:
+        # Áp dụng hiệu chỉnh tầm nhìn (Visibility Bias Correction)
+        fc.visibility_m = calibrate_visibility_vvtx(fc, lat, lon, wind_unit)
+
         spread = dewpoint_spread(fc.temperature_2m, fc.dew_point_2m)
         moisture = (
             0.30 * fc.relative_humidity_2m
@@ -421,7 +456,7 @@ def process_forecast_models(forecasts: List[HourlyForecast], wind_unit: str = "k
                 else ("Trung bình" if fc.pop_calibrated >= 40 else "Thấp")
             )
         )
-        fc.confidence_note = "Open-Meteo"
+        fc.confidence_note = "Open-Meteo (Calibrated)"
 
     return forecasts
 
@@ -493,7 +528,7 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
     row_gust = [f'<td class="sticky-col row-title">Gió giật ({wind_unit_text})</td>']
     row_rh = ['<td class="sticky-col row-title">Độ ẩm 2m (%)</td>']
     row_rh850 = ['<td class="sticky-col row-title">Độ ẩm 850hPa (%)</td>']
-    row_vis = ['<td class="sticky-col row-title">Tầm nhìn (km)</td>']
+    row_vis = ['<td class="sticky-col row-title">Tầm nhìn hiệu chỉnh (km)</td>']
     row_press = ['<td class="sticky-col row-title">Áp suất (hPa)</td>']
 
     fmt_wind = ".1f" if wind_unit_text == "m/s" else ".0f"
@@ -523,7 +558,7 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
         row_gust.append(f'<td style="color:#ef4444; font-weight:bold;">{fc.wind_gusts_10m:{fmt_wind}}</td>')
         row_rh.append(f'<td>{fc.relative_humidity_2m:.0f}%</td>')
         row_rh850.append(f'<td><b>{fc.relative_humidity_850hPa:.0f}%</b></td>')
-        row_vis.append(f'<td>{fc.visibility_m/1000:.1f}</td>')
+        row_vis.append(f'<td><b>{fc.visibility_m/1000:.1f}</b></td>')
         row_press.append(f'<td>{fc.surface_pressure:.0f}</td>')
 
     table_html = f"""
@@ -605,7 +640,7 @@ wind_unit_text = "km/h" if wind_unit_param == "kmh" else "m/s"
 def load_data(lat: float, lon: float, w_unit: str):
     raw = fetch_open_meteo(lat, lon, wind_unit=w_unit)
     forecasts = parse_forecasts(raw)
-    processed = process_forecast_models(forecasts, wind_unit=w_unit)
+    processed = process_forecast_models(forecasts, wind_unit=w_unit, lat=lat, lon=lon)
     return processed
 
 
@@ -640,7 +675,9 @@ with col_btn:
         try:
             new_raw = fetch_open_meteo(LATITUDE, LONGITUDE, wind_unit=wind_unit_param)
             new_parsed = parse_forecasts(new_raw)
-            new_forecasts = process_forecast_models(new_parsed, wind_unit=wind_unit_param)
+            new_forecasts = process_forecast_models(
+                new_parsed, wind_unit=wind_unit_param, lat=LATITUDE, lon=LONGITUDE
+            )
             new_future = [
                 fc
                 for fc in new_forecasts
@@ -702,7 +739,7 @@ fmt_curr_wind = ".1f" if wind_unit_text == "m/s" else ".0f"
 st.markdown(
     f"""
 <div class="summary-box">
-    <b>Hiện tại ({curr.forecast_time.split('T')[1]}):</b> Nhiệt độ <b>+{curr.temperature_2m:.1f} °C</b>, độ ẩm <b>{curr.relative_humidity_2m:.0f}%</b>, gió {wind_deg_to_dir(curr.wind_direction_10m)} <b>{curr.wind_speed_10m:{fmt_curr_wind}} {wind_unit_text}</b>, tầm nhìn <b>{curr.visibility_m/1000:.1f} km</b>.<br>
+    <b>Hiện tại ({curr.forecast_time.split('T')[1]}):</b> Nhiệt độ <b>+{curr.temperature_2m:.1f} °C</b>, độ ẩm <b>{curr.relative_humidity_2m:.0f}%</b>, gió {wind_deg_to_dir(curr.wind_direction_10m)} <b>{curr.wind_speed_10m:{fmt_curr_wind}} {wind_unit_text}</b>, tầm nhìn hiệu chỉnh <b>{curr.visibility_m/1000:.1f} km</b>.<br>
     <b>Dự báo 24 giờ tới:</b> Nhiệt độ dao động từ <b>+{min_t:.0f}..+{max_t:.0f} °C</b>, {rain_desc} (Xác suất mưa hiệu chỉnh cao nhất: <b>{max_pop:.0f}%</b>).
 </div>
 """,
@@ -797,7 +834,7 @@ st.plotly_chart(fig5, use_container_width=True, config=touch_config)
 st.markdown("<br>", unsafe_allow_html=True)
 
 # 6. Tầm nhìn xa
-st.markdown("#### 👁️ 6. Tầm nhìn xa (km)")
+st.markdown("#### 👁️ 6. Tầm nhìn xa hiệu chỉnh (km)")
 fig6 = go.Figure()
 fig6.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data["Tầm nhìn (km)"], name="Tầm nhìn (km)", mode="lines+markers", line=dict(color="#6366f1", width=2), fill="tozeroy", fillcolor="rgba(99, 102, 241, 0.1)"))
 fig6.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
