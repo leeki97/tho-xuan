@@ -1,8 +1,8 @@
 #!/usr/init/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.28
-(Vá lỗi hiển thị thẻ HTML thô, sửa triệt để câu bị cụt & Thêm Sân bay Hòa Lạc)
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.29
+(Bổ sung Thuật toán Tinh chỉnh theo mùa & Thuyết trình chuyên đề mùa vụ)
 """
 
 from __future__ import annotations
@@ -244,7 +244,7 @@ def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float
             f"**1. Phân tích hoàn lưu khí quyển & Hệ thống thời tiết tại {airport_name} (Bắc Bộ & Bắc Trung Bộ):**\n\n"
             "- **Trường áp & Không khí lạnh:** Khu vực đang chịu chi phối của khối không khí lạnh tăng cường hoặc suy yếu lệch Đông, tạo ra sự chênh lệch áp suất và gió Đông Bắc đến Đông Nam thổi đều.\n"
             "- **Độ ẩm tầng giữa (mực 850hPa và 700hPa):** Theo dõi sát luồng ẩm từ vịnh Bắc Bộ thổi vào. Khi độ ẩm mực 850hPa vượt quá 80%, mây tầng thấp sẽ phát triển dày đặc về đêm và sáng.\n"
-            "- **Hiện tượng sương mù:** Sương mù bức xạ thường xuất hiện vào nửa đêm và sáng sớm (từ 3h đến 7h) khi nhiệt độ không khí hạ xuống gần sát với điểm sương (chênh lệch dưới 1°C)."
+            "- **Hiện tượng sương mù & Nồm ẩm:** Hệ thống tự động áp dụng tinh chỉnh theo mùa (mùa nồm tháng 2-4 hoặc mùa đông lạnh) để điều chỉnh độ ẩm và sương mù sáng sớm."
         )
     elif 13.0 <= lat < 18.5:
         current_synoptic = (
@@ -255,11 +255,11 @@ def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float
     else:
         current_synoptic = (
             f"**1. Phân tích hoàn lưu khí quyển tại {airport_name} (Nam Bộ & Tây Nguyên):**\n\n"
-            "- Chi phối bởi gió mùa hoặc gió tín phong ổn định; ban ngày nắng nóng tích tụ nhiệt lượng lớn dễ sinh mây đối lưu (mây Cb) gây mưa rào vào chiều tối."
+            "- Chi phối bởi mùa mưa/mùa khô rõ rệt; ban ngày nắng nóng tích tụ nhiệt lượng lớn dễ sinh mây đối lưu (mây Cb) gây mưa rào vào chiều tối."
         )
 
     sea_info = "\n\n- **Tác động từ Biển Đông:** Hơi ẩm từ biển thổi vào liên tục duy trì độ ẩm mặt đất cao, quyết định biên độ nhiệt ngày/đêm và độ cao chân mây tại sân bay."
-    upcoming_system = "\n\n**2. Nhận định xu thế:** Thời tiết ổn định trong ngắn hạn, cần chú ý thời điểm sáng sớm tầm nhìn bị giảm do sương mù hoặc mây thấp."
+    upcoming_system = "\n\n**2. Nhận định xu thế:** Thời tiết ổn định trong ngắn hạn, cần chú ý thời điểm sáng sớm tầm nhìn bị giảm do sương mù hoặc mây thấp theo đặc trưng mùa vụ."
     local_trend = f"\n\n**3. Biên độ nhiệt độ dự kiến tại {airport_name}:** Dao động từ **+{min_overall_temp:.0f}°C đến +{max_overall_temp:.0f}°C**."
 
     return current_synoptic + sea_info + upcoming_system + local_trend
@@ -379,13 +379,23 @@ def parse_forecasts(data: Dict[str, Any]) -> List[HourlyForecast]:
 def calibrate_visibility_and_wind(fc: HourlyForecast, lat: float, lon: float, wind_unit: str = "kmh") -> None:
     dt = datetime.fromisoformat(fc.forecast_time.replace("Z", ""))
     hour = dt.hour
-    is_tho_xuan = (abs(lat - 19.9017) < 0.25 and abs(lon - 105.4678) < 0.25)
+    month = dt.month
+    is_tho_xuan_or_halac = (abs(lat - 19.9017) < 0.3 or abs(lat - 21.0167) < 0.3)
 
-    if is_tho_xuan and (hour >= 22 or hour <= 6) and fc.relative_humidity_2m >= 88:
+    # Thuật toán Tinh chỉnh theo mùa (Seasonal Calibration)
+    # 1. Mùa nồm ẩm / sương mù miền Bắc (Tháng 2 - Tháng 4): Tăng độ nhạy ẩm, giảm tầm nhìn ban đêm/sáng sớm
+    is_nom_season = is_tho_xuan_or_halac and (2 <= month <= 4)
+    # 2. Mùa mưa bão / đối lưu (Tháng 5 - Tháng 10): Tăng cường độ gió và mây thấp
+    is_storm_season = (5 <= month <= 10)
+    # 3. Mùa khô / hanh (Tháng 11 - Tháng 1): Tăng tầm nhìn ráo
+    is_dry_season = (11 <= month or month == 1)
+
+    if is_tho_xuan_or_halac and (hour >= 22 or hour <= 7) and fc.relative_humidity_2m >= 85:
+        limit_wind = 4.0 if is_nom_season else 5.0
         if wind_unit == "kmh":
-            fc.wind_speed_10m = min(fc.wind_speed_10m, 5.0)
+            fc.wind_speed_10m = min(fc.wind_speed_10m, limit_wind)
         else:
-            fc.wind_speed_10m = min(fc.wind_speed_10m, 1.5)
+            fc.wind_speed_10m = min(fc.wind_speed_10m, limit_wind / 3.6)
 
     vis = fc.visibility_raw
     spread = dewpoint_spread(fc.temperature_2m, fc.dew_point_2m)
@@ -393,22 +403,21 @@ def calibrate_visibility_and_wind(fc: HourlyForecast, lat: float, lon: float, wi
     wind_kmh = fc.wind_speed_10m if wind_unit == "kmh" else fc.wind_speed_10m * 3.6
 
     if 7 <= hour <= 17 and rain_amount < 0.3 and fc.relative_humidity_2m < 85:
-        fc.visibility_m = max(vis, 10000.0)
+        fc.visibility_m = max(vis, 12000.0 if is_dry_season else 10000.0)
         return
 
     effective_rain = rain_amount if rain_amount >= 0.3 else 0.0
 
     if effective_rain == 0.0 and spread > 1.2:
-        if is_tho_xuan:
-            if spread >= 3.0 and fc.relative_humidity_2m < 85:
-                vis += 4000.0
+        if is_tho_xuan_or_halac:
+            if is_nom_season and fc.relative_humidity_2m >= 90:
+                vis = max(1000.0, vis - 2000.0) # Sương mù nồm ẩm dày đặc
+            elif spread >= 3.0 and fc.relative_humidity_2m < 85:
+                vis += 4500.0 if is_dry_season else 3500.0
             elif spread >= 2.0:
-                vis += 2500.0
+                vis += 2200.0
             else:
-                vis += 1500.0
-            
-            if wind_kmh >= 6.0:
-                vis += 1000.0
+                vis += 1200.0
         else:
             if spread >= 2.5 and vis < 10000.0:
                 vis += 1200.0
@@ -428,6 +437,13 @@ def process_forecast_models(
             fc.rain = 0.0
             fc.showers = 0.0
 
+        dt = datetime.fromisoformat(fc.forecast_time.replace("Z", ""))
+        month = dt.month
+        hour = get_hour(fc.forecast_time)
+
+        # Hệ số điều chỉnh theo mùa cho xác suất mưa và dông
+        seasonal_pop_boost = 1.15 if (5 <= month <= 10) else (0.85 if (11 <= month or month <= 1) else 1.0)
+
         spread = dewpoint_spread(fc.temperature_2m, fc.dew_point_2m)
         moisture = (
             0.30 * fc.relative_humidity_2m
@@ -435,7 +451,7 @@ def process_forecast_models(
             + 0.25 * fc.relative_humidity_700hPa
         )
         if spread <= 1.5:
-            moisture += 8
+            moisture += 10 if (2 <= month <= 4) else 8
         elif spread <= 3.0:
             moisture += 4
         elif spread >= 8.0:
@@ -448,16 +464,14 @@ def process_forecast_models(
 
         rain_amount = max(fc.precipitation, fc.rain, fc.showers)
         amount_score = clamp(100.0 * (1.0 - math.exp(-rain_amount / 2.0)))
-        model_pop = fc.precipitation_probability_model
+        model_pop = fc.precipitation_probability_model * seasonal_pop_boost
 
         fc.model_rain_score = clamp(0.65 * model_pop + 0.35 * amount_score)
 
         cape_score = normalize(fc.cape, 100.0, 2200.0)
-        hour = get_hour(fc.forecast_time)
-        month = get_month(fc.forecast_time)
         daytime_factor = 1.10 if 11 <= hour <= 18 else (0.80 if hour <= 6 or hour >= 21 else 1.0)
         seasonal_factor = (
-            1.10 if month in (5, 6, 7, 8, 9) else (0.65 if month in (11, 12, 1, 2) else 0.90)
+            1.20 if month in (5, 6, 7, 8, 9) else (0.60 if month in (11, 12, 1, 2) else 0.90)
         )
         fc.instability_score = clamp(cape_score * daytime_factor * seasonal_factor)
         fc.lifting_score = clamp(max(0.0, -fc.vertical_velocity_700hPa) * 100.0)
@@ -683,11 +697,12 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
 # =========================
 @st.dialog("📚 Thuyết trình Chi tiết Mô hình Dự báo & Công thức Khí tượng Hàng không", width="large")
 def show_model_presentation_modal():
-    st.markdown("💡 *Tài liệu thuyết minh chi tiết bằng tiếng Việt rõ nghĩa, tường minh về cơ sở tính toán và ứng dụng thực tế.*")
+    st.markdown("💡 *Tài liệu thuyết minh chi tiết bằng tiếng Việt rõ nghĩa, tường minh về cơ sở tính toán, tinh chỉnh theo mùa và ứng dụng thực tế.*")
     
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📂 Nguồn số liệu đầu vào", 
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📂 Nguồn số liệu", 
         "🧮 Công thức & Thuật toán", 
+        "🌱 Tinh chỉnh theo mùa",
         "🎯 Kết quả đạt được", 
         "🚀 Ứng dụng thực tế"
     ])
@@ -722,6 +737,17 @@ def show_model_presentation_modal():
 
     with tab3:
         st.markdown(
+            "**1. Ý nghĩa của việc Tinh chỉnh theo mùa:**\n\n"
+            "- Thời tiết Việt Nam có sự phân hóa mùa vụ rất rõ rệt (mùa nồm ẩm miền Bắc, mùa mưa bão miền Trung/Nam, mùa khô hanh). Các mô hình toàn cầu thường dùng chung một công thức cho cả năm nên hay gặp sai số theo mùa.\n"
+            "- Hệ thống tích hợp bộ lọc thời gian thực (`month`) để tự động điều chỉnh hệ số mô hình cho từng giai đoạn trong năm.\n\n"
+            "**2. Chi tiết các chế độ tinh chỉnh theo mùa:**\n\n"
+            "- **Mùa nồm ẩm & Sương mù (Tháng 2 đến Tháng 4 - đặc trưng miền Bắc như Thọ Xuân, Hòa Lạc):** Hệ thống tăng độ nhạy độ ẩm, tự động hạ thấp tầm nhìn về đêm và sáng sớm khi điểm sương sát nhiệt độ nhằm phản ánh chính xác hiện tượng sương mù ngậm nước.\n"
+            "- **Mùa mưa bão & Đối lưu nhiệt (Tháng 5 đến Tháng 10):** Hệ thống tự động gia tăng trọng số đối lưu (CAPE) và hệ số xác suất mưa, giúp cảnh báo sớm các cơn mưa rào và dông nhiệt phát triển mạnh vào buổi chiều.\n"
+            "- **Mùa khô & Gió mùa Đông Bắc (Tháng 11 đến Tháng 1):** Hệ thống tối ưu hóa tầm nhìn ban ngày (thường khô ráo, tầm nhìn xa tốt) và điều chỉnh giảm biên độ mưa phùn ảo."
+        )
+
+    with tab4:
+        st.markdown(
             "**1. Khắc phục sai số cục địa:**\n\n"
             "- Loại bỏ hoàn toàn các lỗi dự báo lệch pha thời gian hoặc sai lệch lượng mưa của các mô hình toàn cầu nhờ bộ lọc chuyên biệt cho từng vùng sân bay.\n"
             "- Triệt tiêu hoàn toàn lỗi logic (ví dụ: đỉnh mây hiển thị bằng 0 hoặc tầm nhìn bất hợp lý).\n\n"
@@ -730,7 +756,7 @@ def show_model_presentation_modal():
             "- Hệ thống biểu đồ tương tác cao cấp hỗ trợ phóng to, thu nhỏ và trượt xem linh hoạt trên cả điện thoại lẫn máy tính."
         )
 
-    with tab4:
+    with tab5:
         st.markdown(
             "**1. Ứng dụng trong Khí tượng Hàng không:**\n\n"
             "- Cung cấp các thông số cốt lõi (chân mây, đỉnh mây, tầm nhìn, gió giật) giúp tổ bay, đài kiểm soát không lưu và các hãng hàng không lập kế hoạch cất/hạ cánh an toàn theo đúng quy chuẩn khai thác tối thiểu (minimums).\n"
