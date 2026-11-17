@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.13 (TỐI ƯU HÓA THỐNG KÊ METAR THỌ XUÂN)
+HỆ THỐNG DỰ BÁO KHÍ TƯỢNG HÀNG KHÔNG v4.14 - VVTX PRIMARY / ECMWF IFS HRES 9 KM
 """
 
 from __future__ import annotations
@@ -52,8 +52,10 @@ AIRPORT_DATABASE = {
 
 TIMEZONE = "Asia/Bangkok"
 FORECAST_DAYS = 10
+DETAIL_HOURS = 48
 REQUEST_TIMEOUT = 60
-OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+# ECMWF IFS HRES native 9 km; không dùng Best Match/GFS/ICON thay thế.
+OPEN_METEO_URL = "https://api.open-meteo.com/v1/ecmwf"
 
 HOURLY_VARIABLES = [
     "temperature_2m",
@@ -74,9 +76,12 @@ HOURLY_VARIABLES = [
     "wind_speed_10m",
     "wind_direction_10m",
     "wind_gusts_10m",
-    "relative_humidity_850hPa",
-    "relative_humidity_700hPa",
-    "vertical_velocity_700hPa",
+    "lifted_index",
+    "convective_inhibition",
+    "boundary_layer_height",
+    "freezing_level_height",
+    "wet_bulb_temperature_2m",
+    "total_column_integrated_water_vapour",
 ]
 
 st.set_page_config(page_title="Thời tiết Sân bay Việt Nam", page_icon="✈️", layout="wide")
@@ -91,17 +96,17 @@ def render_login_screen():
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         st.markdown("### ✈️ Đăng nhập Hệ thống Khí tượng Sân bay")
-        st.caption("Tài khoản: admin | Mật khẩu: 123")
+        st.caption("Đăng nhập quản trị: cấu hình qua biến môi trường APP_USERNAME / APP_PASSWORD")
         with st.form("login_form"):
             username = st.text_input("Tên đăng nhập", value="admin")
             password = st.text_input("Mật khẩu", type="password")
             submit = st.form_submit_button("Truy cập hệ thống", use_container_width=True)
             if submit:
-                if username == "admin" and password == "123":
+                if username == os.getenv("APP_USERNAME", "admin") and password == os.getenv("APP_PASSWORD", "123"):
                     st.session_state["logged_in"] = True
                     st.rerun()
                 else:
-                    st.error("Sai mật khẩu! Mật khẩu hiện tại là: 123")
+                    st.error("Sai thông tin đăng nhập. Hãy cấu hình APP_USERNAME và APP_PASSWORD trong môi trường chạy ứng dụng.")
 
 
 if not st.session_state["logged_in"]:
@@ -114,68 +119,28 @@ if not st.session_state["logged_in"]:
 # =========================
 
 def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float, airport_name: str) -> str:
-    """Tự động tạo bản tin phân tích hệ thống thời tiết hiện tại và xu thế 10 ngày tới"""
+    """Tóm tắt xu thế tại điểm dự báo từ trường ECMWF; không tự khẳng định hình thế synoptic khi thiếu bản đồ."""
     if not forecasts:
         return "Đang cập nhật dữ liệu xu thế..."
-
-    daily_summary = {}
+    by_day: Dict[str, List[HourlyForecast]] = {}
     for fc in forecasts:
         dt = datetime.fromisoformat(fc.forecast_time.replace("Z", ""))
-        day_str = dt.strftime("%d/%m")
-        daily_summary.setdefault(day_str, {"temps": [], "pops": [], "rains": []})
-        daily_summary[day_str]["temps"].append(fc.temperature_2m)
-        daily_summary[day_str]["pops"].append(fc.pop_calibrated)
-        daily_summary[day_str]["rains"].append(max(fc.precipitation, fc.rain, fc.showers))
-
-    max_overall_temp = -99
-    min_overall_temp = 99
-    rainy_days = []
-
-    for day, metrics in daily_summary.items():
-        max_t = max(metrics["temps"])
-        min_t = min(metrics["temps"])
-        max_pop = max(metrics["pops"])
-        total_rain = sum(metrics["rains"])
-
-        max_overall_temp = max(max_overall_temp, max_t)
-        min_overall_temp = min(min_overall_temp, min_t)
-
-        if max_pop >= 50 or total_rain >= 2.0:
-            rainy_days.append(day)
-
-    current_synoptic = ""
-    if lat >= 18.5:
-        current_synoptic = (
-            "<b>1. Phân tích các hệ thống thời tiết chính hiện tại (Khu vực Bắc Bộ & Bắc Trung Bộ):</b><br>"
-            "• <b>Áp cao lạnh lục địa (Không khí lạnh):</b> Đợt không khí lạnh trước đã dịch chuyển ra phía Đông và suy yếu dần. Miền Bắc đang nằm ở rìa phía Tây Nam của khối áp cao suy yếu kết hợp trường gió nhẹ, tạo trạng thái ổn định ngắn hạn: sáng sớm có sương mù và sương mù nhẹ rải rác, ban ngày nắng ráo với nền nhiệt tăng nhanh (nhiệt độ cao nhất dao động quanh mức 29–31°C). Trời se lạnh về đêm và sáng sớm.<br>"
-        )
-    elif 13.0 <= lat < 18.5:
-        current_synoptic = (
-            "<b>1. Phân tích các hệ thống thời tiết chính hiện tại (Khu vực Trung Trung Bộ):</b><br>"
-            "• Các ổ mây gây mưa lớn do tương hợp không khí lạnh và nhiễu động trước đó đã suy giảm đáng kể. Thời tiết tạnh ráo, có nắng gián đoạn, chỉ còn mưa rào và dông vài nơi về chiều tối do tác động của đới gió Đông kết hợp địa hình.<br>"
-        )
-    else:
-        current_synoptic = (
-            "<b>1. Phân tích các hệ thống thời tiết chính hiện tại (Khu vực Nam Bộ & Tây Nguyên):</b><br>"
-            "• Chịu chi phối của dòng thăng giáng nội chí tuyến kết hợp gió Đông Bắc cường độ trung bình đến yếu. Ban ngày trời nắng, chiều tối và đêm xuất hiện mưa rào và dông rải rác, tập trung nhiều hơn ở khu vực miền Tây Nam Bộ.<br>"
-        )
-
-    sea_info = "• <b>Khu vực Biển Đông:</b> Hiện tại không có bão hay áp thấp nhiệt đới hoạt động. Do tác động của pha El Nino duy trì cường độ, hoạt động xoáy thuận nhiệt đới nhìn chung thấp hơn mức trung bình nhiều năm.<br>"
-
-    upcoming_system = (
-        "<b>2. Dự báo hệ thống sắp dịch chuyển tới (Đợt biến động từ 17–19/11):</b><br>"
-        "• <b>Không khí lạnh tăng cường:</b> Một đợt không khí lạnh mới có cường độ khá mạnh đang chuẩn bị tràn xuống nước ta.<br>"
-        "• <b>Thời gian tác động:</b> Bắt đầu từ khoảng đêm 17 đến ngày 18/11, gió chuyển hướng Đông Bắc mạnh dần cấp 2–3.<br>"
-        "• <b>Hiện tượng đi kèm:</b> Gây mưa rào và dông diện rộng ở Bắc Bộ và khu vực từ Thanh Hóa đến Thừa Thiên Huế (cục bộ có nơi mưa to). Từ khoảng ngày 19/11, nền nhiệt miền Bắc giảm sâu đột ngột; vùng núi phía Bắc chuyển rét, đồng bằng chuyển lạnh.<br>"
-    )
-
-    local_trend = (
-        f"<b>3. Xu thế thời tiết 10 ngày tới tại {airport_name}:</b><br>"
-        f"• Biên độ nhiệt dao động từ <b>+{min_overall_temp:.0f}°C đến +{max_overall_temp:.0f}°C</b>.<br>"
-        f"• Các mốc ngày cần chú ý khả năng có mưa rào/dông: <b>{', '.join(rainy_days[:5]) if rainy_days else 'Ít mưa, thời tiết ổn định'}</b>."
-    )
-
-    return f"<div style='line-height: 1.6; font-size: 13px;'>{current_synoptic}{sea_info}<br>{upcoming_system}<br>{local_trend}</div>"
+        by_day.setdefault(dt.strftime("%d/%m/%Y"), []).append(fc)
+    rows = []
+    for day, vals in by_day.items():
+        tmin = min(x.temperature_2m for x in vals)
+        tmax = max(x.temperature_2m for x in vals)
+        popmax = max(x.pop_calibrated for x in vals)
+        rain = sum(max(x.precipitation, x.rain, x.showers) for x in vals)
+        gust = max(x.wind_gusts_10m for x in vals)
+        thunder = max(x.thunder_probability for x in vals)
+        rows.append(f"<tr><td>{html.escape(day)}</td><td>{tmin:.0f}–{tmax:.0f}</td><td>{popmax:.0f}%</td><td>{rain:.1f}</td><td>{gust:.0f}</td><td>{thunder:.0f}%</td></tr>")
+    return (f"<b>Xu thế 10 ngày tại {html.escape(airport_name)}</b><br>"
+            "Tổng hợp trực tiếp từ dự báo ECMWF IFS HRES 9 km tại tọa độ sân bay. Đây là xu thế điểm, "
+            "không thay thế phân tích bản đồ synoptic, radar, METAR/TAF hoặc cảnh báo chính thức."
+            "<div style='overflow-x:auto'><table style='width:100%;border-collapse:collapse'>"
+            "<tr><th>Ngày</th><th>Nhiệt độ min–max °C</th><th>PoP lớn nhất</th><th>Mưa cộng dồn mm</th><th>Gió giật lớn nhất km/h</th><th>Nguy cơ dông lớn nhất</th></tr>"
+            + "".join(rows) + "</table></div>")
 
 
 # =========================
@@ -203,9 +168,16 @@ class HourlyForecast:
     wind_speed_10m: float
     wind_direction_10m: float
     wind_gusts_10m: float
-    relative_humidity_850hPa: float
-    relative_humidity_700hPa: float
-    vertical_velocity_700hPa: float
+    lifted_index: float = 0.0
+    convective_inhibition: float = 0.0
+    boundary_layer_height: float = 0.0
+    freezing_level_height: float = 0.0
+    wet_bulb_temperature_2m: float = 0.0
+    total_column_integrated_water_vapour: float = 0.0
+    # Các trường dưới đây giữ tương thích cấu trúc v4.13; HRES 9 km không cung cấp trường áp mực 850/700 hPa.
+    relative_humidity_850hPa: float = 0.0
+    relative_humidity_700hPa: float = 0.0
+    vertical_velocity_700hPa: float = 0.0
 
     radar_score: float = 0.0
     moisture_score: float = 0.0
@@ -317,9 +289,12 @@ def parse_forecasts(data: Dict[str, Any]) -> List[HourlyForecast]:
                 wind_speed_10m=safe_float(hourly.get("wind_speed_10m", [0] * len(times))[i]),
                 wind_direction_10m=safe_float(hourly.get("wind_direction_10m", [0] * len(times))[i]),
                 wind_gusts_10m=safe_float(hourly.get("wind_gusts_10m", [0] * len(times))[i]),
-                relative_humidity_850hPa=safe_float(hourly.get("relative_humidity_850hPa", [0] * len(times))[i]),
-                relative_humidity_700hPa=safe_float(hourly.get("relative_humidity_700hPa", [0] * len(times))[i]),
-                vertical_velocity_700hPa=safe_float(hourly.get("vertical_velocity_700hPa", [0] * len(times))[i]),
+                lifted_index=safe_float(hourly.get("lifted_index", [0] * len(times))[i]),
+                convective_inhibition=safe_float(hourly.get("convective_inhibition", [0] * len(times))[i]),
+                boundary_layer_height=safe_float(hourly.get("boundary_layer_height", [0] * len(times))[i]),
+                freezing_level_height=safe_float(hourly.get("freezing_level_height", [0] * len(times))[i]),
+                wet_bulb_temperature_2m=safe_float(hourly.get("wet_bulb_temperature_2m", [0] * len(times))[i]),
+                total_column_integrated_water_vapour=safe_float(hourly.get("total_column_integrated_water_vapour", [0] * len(times))[i]),
             )
         )
     return forecasts
@@ -386,11 +361,8 @@ def process_forecast_models(
             fc.showers = 0.0
 
         spread = dewpoint_spread(fc.temperature_2m, fc.dew_point_2m)
-        moisture = (
-            0.30 * fc.relative_humidity_2m
-            + 0.45 * fc.relative_humidity_850hPa
-            + 0.25 * fc.relative_humidity_700hPa
-        )
+        # HRES 9 km không có RH850/RH700; không giả lập các trường áp mực này.
+        moisture = fc.relative_humidity_2m
         if spread <= 1.5:
             moisture += 8
         elif spread <= 3.0:
@@ -417,7 +389,8 @@ def process_forecast_models(
             1.10 if month in (5, 6, 7, 8, 9) else (0.65 if month in (11, 12, 1, 2) else 0.90)
         )
         fc.instability_score = clamp(cape_score * daytime_factor * seasonal_factor)
-        fc.lifting_score = clamp(max(0.0, -fc.vertical_velocity_700hPa) * 100.0)
+        # Không có omega 700 hPa trong HRES 9 km; dùng CIN/LI như chỉ báo bất ổn bổ trợ.
+        fc.lifting_score = clamp(normalize(max(0.0, -fc.lifted_index), 0.0, 8.0) * (1.0 - normalize(max(0.0, fc.convective_inhibition), 0.0, 250.0) / 100.0))
 
         wind_kmh = fc.wind_speed_10m if wind_unit == "kmh" else fc.wind_speed_10m * 3.6
         wind_dir = fc.wind_direction_10m
@@ -440,10 +413,6 @@ def process_forecast_models(
         )
         prob = sigmoid(z) * 100.0
 
-        if fc.relative_humidity_850hPa < 50 and rain_amount < 0.1:
-            prob = min(prob, 25)
-        if fc.relative_humidity_700hPa < 40 and rain_amount < 0.1:
-            prob = min(prob, 35)
         if fc.cloud_cover_low < 20 and fc.cloud_cover_mid < 30 and rain_amount < 0.1:
             prob = min(prob, 20)
         if rain_amount >= 0.5 and model_pop >= 50:
@@ -453,15 +422,14 @@ def process_forecast_models(
 
         thunder_weather_code = fc.weather_code in (95, 96, 99)
         thunder_z = (
-            -7.20
-            + 0.00165 * fc.cape
-            + 0.010 * model_pop
-            + 0.50 * min(rain_amount, 4.0)
-            + 0.004 * fc.moisture_score
-            + (2.20 if thunder_weather_code else 0.0)
+            -6.80 + 0.00145 * fc.cape + 0.010 * model_pop
+            + 0.40 * min(rain_amount, 4.0) + 0.003 * fc.moisture_score
+            + 0.30 * fc.lifting_score
+            - 0.012 * max(fc.convective_inhibition, 0.0)
+            + (1.60 if thunder_weather_code else 0.0)
         )
         thunder_prob = sigmoid(thunder_z) * 100.0
-        if fc.cape < 300:
+        if fc.cape < 100 or fc.convective_inhibition >= 200:
             thunder_prob = min(thunder_prob, 10)
         fc.thunder_probability = round(clamp(thunder_prob), 1)
 
@@ -545,8 +513,8 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
     row_wind = [f'<td class="sticky-col row-title">Gió duy trì ({wind_unit_text})</td>']
     row_gust = [f'<td class="sticky-col row-title">Gió giật ({wind_unit_text})</td>']
     row_rh = ['<td class="sticky-col row-title">Độ ẩm 2m (%)</td>']
-    row_rh850 = ['<td class="sticky-col row-title">Độ ẩm 850hPa (%)</td>']
-    row_vis = ['<td class="sticky-col row-title">Tầm nhìn hiệu chỉnh (km)</td>']
+    row_rh850 = ['<td class="sticky-col row-title">RH 850 hPa (không có trong HRES 9 km)</td>']
+    row_vis = ['<td class="sticky-col row-title">Tầm nhìn mô hình/hiệu chỉnh (km)</td>']
     row_press = ['<td class="sticky-col row-title">Áp suất (hPa)</td>']
 
     fmt_wind = ".1f" if wind_unit_text == "m/s" else ".0f"
@@ -575,7 +543,7 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
         row_wind.append(f'<td>{wind_dir} {fc.wind_speed_10m:{fmt_wind}}</td>')
         row_gust.append(f'<td style="color:#ef4444; font-weight:bold;">{fc.wind_gusts_10m:{fmt_wind}}</td>')
         row_rh.append(f'<td>{fc.relative_humidity_2m:.0f}%</td>')
-        row_rh850.append(f'<td><b>{fc.relative_humidity_850hPa:.0f}%</b></td>')
+        row_rh850.append('<td>—</td>')
         row_vis.append(f'<td><b>{fc.visibility_m/1000:.1f}</b></td>')
         row_press.append(f'<td>{fc.surface_pressure:.0f}</td>')
 
@@ -636,14 +604,15 @@ if st.sidebar.button("🚪 Đăng xuất", use_container_width=True):
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ✈️ Lựa chọn Sân bay")
-selected_airport_name = st.sidebar.selectbox("Chọn điểm quan trắc:", list(AIRPORT_DATABASE.keys()), index=0)
+selected_airport_name = st.sidebar.selectbox("Chọn điểm dự báo:", list(AIRPORT_DATABASE.keys()), index=0)
+st.sidebar.caption("Điểm chính mặc định: Sân bay Thọ Xuân (VVTX)")
 
 LATITUDE = AIRPORT_DATABASE[selected_airport_name]["lat"]
 LONGITUDE = AIRPORT_DATABASE[selected_airport_name]["lon"]
 
 st.sidebar.markdown("---")
 days_to_show = st.sidebar.selectbox(
-    "Phạm vi dự báo xem trước:", [2, 3, 5, 7, 10], index=1, format_func=lambda x: f"{x} ngày tới"
+    "Phạm vi xu thế xem trước:", [10, 7, 5, 3], index=0, format_func=lambda x: f"{x} ngày tới"
 )
 
 wind_unit_label = st.sidebar.selectbox(
@@ -661,7 +630,7 @@ def load_data(lat: float, lon: float, w_unit: str):
     return processed
 
 
-with st.spinner(f"Đang đồng bộ dữ liệu khí tượng 10 ngày tại {selected_airport_name}..."):
+with st.spinner(f"Đang đồng bộ ECMWF IFS HRES 9 km tại {selected_airport_name}..."):
     try:
         forecasts = load_data(LATITUDE, LONGITUDE, wind_unit_param)
     except Exception as e:
@@ -681,7 +650,7 @@ col_title, col_btn = st.columns([4, 1])
 with col_title:
     st.title(f"🌤️ Thời tiết tại {selected_airport_name}")
     st.caption(
-        f"Tọa độ: {LATITUDE}°N, {LONGITUDE}°E · Cập nhật lúc: {datetime.now(ZoneInfo(TIMEZONE)).strftime('%H:%M %d/%m/%Y')}"
+        f"Nguồn: ECMWF IFS HRES 9 km · Tọa độ: {LATITUDE}°N, {LONGITUDE}°E · Cập nhật lúc: {datetime.now(ZoneInfo(TIMEZONE)).strftime('%H:%M %d/%m/%Y')}"
     )
 with col_btn:
     st.write("")
@@ -740,7 +709,7 @@ if st.session_state["change_notification"]:
     st.session_state["change_notification"] = None
 
 curr = future_forecasts[0]
-next_24h = future_forecasts[:24]
+next_24h = future_forecasts[:DETAIL_HOURS]
 min_t = min(f.temperature_2m for f in next_24h)
 max_t = max(f.temperature_2m for f in next_24h)
 max_pop = max(f.pop_calibrated for f in next_24h)
@@ -754,20 +723,21 @@ fmt_curr_wind = ".1f" if wind_unit_text == "m/s" else ".0f"
 st.markdown(
     f"""
 <div class="summary-box">
-    <b>Hiện tại ({curr.forecast_time.split('T')[1]}):</b> Nhiệt độ <b>+{curr.temperature_2m:.1f} °C</b>, độ ẩm <b>{curr.relative_humidity_2m:.0f}%</b>, gió {wind_deg_to_dir(curr.wind_direction_10m)} <b>{curr.wind_speed_10m:{fmt_curr_wind}} {wind_unit_text}</b>, tầm nhìn hiệu chỉnh <b>{curr.visibility_m/1000:.1f} km</b>.<br>
-    <b>Dự báo 24 giờ tới:</b> Nhiệt độ dao động từ <b>+{min_t:.0f}..+{max_t:.0f} °C</b>, {rain_desc} (Xác suất mưa hiệu chỉnh cao nhất: <b>{max_pop:.0f}%</b>).
+    <b>Hiện tại ({curr.forecast_time.split('T')[1]}):</b> Nhiệt độ <b>+{curr.temperature_2m:.1f} °C</b>, độ ẩm <b>{curr.relative_humidity_2m:.0f}%</b>, gió {wind_deg_to_dir(curr.wind_direction_10m)} <b>{curr.wind_speed_10m:{fmt_curr_wind}} {wind_unit_text}</b>, tầm nhìn mô hình/hiệu chỉnh <b>{curr.visibility_m/1000:.1f} km</b>.<br>
+    <b>Dự báo 48 giờ tới:</b> Nhiệt độ dao động từ <b>+{min_t:.0f}..+{max_t:.0f} °C</b>, {rain_desc} (Xác suất mưa hiệu chỉnh cao nhất: <b>{max_pop:.0f}%</b>).
 </div>
 """,
     unsafe_allow_html=True,
 )
 
-with st.expander("🌐 Yếu tố ảnh hưởng & Bản tin Phân tích Hệ thống Thời tiết", expanded=False):
+with st.expander("🌐 Phân tích yếu tố khí tượng & Bảng xu thế 10 ngày", expanded=True):
     synoptic_outlook_html = generate_10_day_synoptic_outlook(future_forecasts[:240], LATITUDE, selected_airport_name)
     st.markdown(synoptic_outlook_html, unsafe_allow_html=True)
 
-filtered = future_forecasts[: days_to_show * 24]
+filtered = future_forecasts[:DETAIL_HOURS]
 
-st.markdown("### 📅 Bảng dự báo chi tiết từng giờ (Kéo ngang để xem)")
+st.info("Nguồn mô hình: ECMWF IFS HRES 9 km. 48 giờ đầu hiển thị theo giờ; giai đoạn sau 90 giờ ECMWF có thể chuyển sang bước thời gian 3 giờ, rồi 6 giờ sau 144 giờ (API nội suy chuỗi giờ). HRES 9 km không cung cấp trực tiếp RH/ gió/omega ở mực 850–700 hPa; hệ thống không tự điền giả các trường này. Dữ liệu mô hình không phải quan trắc thực tế.")
+st.markdown("### 📅 Bảng dự báo chi tiết 48 giờ đầu theo từng giờ (Kéo ngang để xem)")
 st.markdown(render_rp5_horizontal_table(filtered, wind_unit_text), unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -776,7 +746,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 # 6. BIỂU ĐỒ PHÂN TÍCH KHÍ TƯỢNG
 # =========================
 
-st.markdown("### 📈 Biểu đồ Phân tích Chi tiết Từng Số liệu")
+st.markdown("### 📈 Biểu đồ phân tích 48 giờ đầu")
 st.caption("💡 Mẹo trên điện thoại: Dùng 2 ngón tay để phóng to/thu nhỏ (pinch-to-zoom) hoặc trượt sang trái/phải để xem chi tiết từng biểu đồ.")
 
 chart_data = pd.DataFrame(
@@ -791,7 +761,10 @@ chart_data = pd.DataFrame(
             f"Tốc độ gió ({wind_unit_text})": fc.wind_speed_10m,
             f"Gió giật ({wind_unit_text})": fc.wind_gusts_10m,
             "Độ ẩm 2m (%)": fc.relative_humidity_2m,
-            "Độ ẩm 850hPa (%)": fc.relative_humidity_850hPa,
+            "LI (°C)": fc.lifted_index,
+            "CIN (J/kg)": fc.convective_inhibition,
+            "Độ cao lớp biên (m)": fc.boundary_layer_height,
+            "Mực đóng băng (m)": fc.freezing_level_height,
             "Tầm nhìn (km)": round(fc.visibility_m / 1000.0, 1),
             "Áp suất (hPa)": fc.surface_pressure,
         }
@@ -833,10 +806,10 @@ fig4.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), legend=dict(
 st.plotly_chart(fig4, use_container_width=True, config=touch_config)
 st.markdown("<br>", unsafe_allow_html=True)
 
-st.markdown("#### 💧 5. Độ ẩm không khí (2m & 850hPa)")
+st.markdown("#### 💧 5. Độ ẩm không khí 2m")
 fig5 = go.Figure()
 fig5.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data["Độ ẩm 2m (%)"], name="Độ ẩm 2m (%)", mode="lines", line=dict(color="#16a34a", width=2)))
-fig5.add_trace(go.Scatter(x=chart_data["Thời gian"], y=chart_data["Độ ẩm 850hPa (%)"], name="Độ ẩm 850hPa (%)", mode="lines", line=dict(color="#ca8a04", width=1.8, dash="dash")))
+
 fig5.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
 fig5.update_yaxes(range=[0, 105])
 st.plotly_chart(fig5, use_container_width=True, config=touch_config)
