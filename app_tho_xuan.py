@@ -27,6 +27,7 @@ import streamlit as st
 AIRPORT_DATABASE = {
     "Sân bay Thọ Xuân (VVTX)": {"lat": 19.9017, "lon": 105.4678},
     "Sân bay Nội Bài (VVNB)": {"lat": 21.2212, "lon": 105.8072},
+    "Sân bay Hòa Lạc": {"lat": 21.0086,"lon": 105.5045},
     "Sân bay Tân Sơn Nhất (VVTS)": {"lat": 10.8188, "lon": 106.6519},
     "Sân bay Đà Nẵng (VVDN)": {"lat": 16.0439, "lon": 108.1994},
     "Sân bay Cát Bi (VVCI)": {"lat": 20.8234, "lon": 106.7219},
