@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.18
-(Đã vá lỗi NaN, tích hợp Bias Correction METAR, Chân mây, Tầm nhìn linh hoạt & Log History Replay)
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.19
+(Tối ưu hóa thời gian thực: Bias Correction METAR, Chân mây & Tầm nhìn linh hoạt)
 """
 
 from __future__ import annotations
 
 import html
 import math
-import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -54,7 +53,6 @@ TIMEZONE = "Asia/Bangkok"
 FORECAST_DAYS = 10
 REQUEST_TIMEOUT = 60
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-HISTORY_LOG_FILE = "forecast_history.csv"
 
 HOURLY_VARIABLES = [
     "temperature_2m",
@@ -109,7 +107,7 @@ if not st.session_state["logged_in"]:
 
 
 # =========================
-# 2. HÀM CHUYỂN ĐỔI AN TOÀN (VÁ LỖI NAN)
+# 2. HÀM CHUYỂN ĐỔI AN TOÀN
 # =========================
 
 def safe_float(value: Any, default: float = 0.0) -> float:
@@ -475,151 +473,7 @@ def process_forecast_models(
 
 
 # =========================
-# 4. HỆ THỐNG LƯU TRỮ & XEM LẠI BẢN TIN QUÁ KHỨ (LOG HISTORY REPLAY)
-# =========================
-
-def save_forecast_history(airport_name: str, forecasts: List[HourlyForecast], wind_unit: str):
-    records = []
-    now_str = datetime.now(ZoneInfo(TIMEZONE)).strftime("%Y-%m-%d %H:00")
-    for fc in forecasts:
-        records.append({
-            "Timestamp_Log": now_str,
-            "Airport": airport_name,
-            "Forecast_Time": fc.forecast_time,
-            "Temperature_2m": fc.temperature_2m,
-            "Relative_Humidity_2m": fc.relative_humidity_2m,
-            "Dew_Point_2m": fc.dew_point_2m,
-            "Pop_Model": fc.precipitation_probability_model,
-            "Precipitation": fc.precipitation,
-            "Rain": fc.rain,
-            "Showers": fc.showers,
-            "Weather_Code": fc.weather_code,
-            "Cloud_Cover": fc.cloud_cover,
-            "Cloud_Cover_Low": fc.cloud_cover_low,
-            "Cloud_Cover_Mid": fc.cloud_cover_mid,
-            "Cloud_Cover_High": fc.cloud_cover_high,
-            "Visibility_Raw": fc.visibility_raw,
-            "Visibility_M": fc.visibility_m,
-            "Surface_Pressure": fc.surface_pressure,
-            "Cape": fc.cape,
-            "Wind_Speed_10m": fc.wind_speed_10m,
-            "Wind_Direction_10m": fc.wind_direction_10m,
-            "Wind_Gusts_10m": fc.wind_gusts_10m,
-            "RH_850hPa": fc.relative_humidity_850hPa,
-            "RH_700hPa": fc.relative_humidity_700hPa,
-            "Vertical_Velocity_700hPa": fc.vertical_velocity_700hPa,
-            "Estimated_Cloud_Base_ft": fc.estimated_cloud_base_ft,
-            "Pop_Calibrated": fc.pop_calibrated,
-            "Thunder_Probability": fc.thunder_probability,
-            "Rain_Level": fc.rain_level,
-        })
-    
-    df_new = pd.DataFrame(records)
-    if os.path.exists(HISTORY_LOG_FILE):
-        try:
-            df_old = pd.read_csv(HISTORY_LOG_FILE)
-            df_old = df_old[~((df_old["Timestamp_Log"] == now_str) & (df_old["Airport"] == airport_name))]
-            df_combined = pd.concat([df_new, df_old], ignore_index=True)
-            df_combined.head(5000).to_csv(HISTORY_LOG_FILE, index=False)
-        except Exception:
-            df_new.to_csv(HISTORY_LOG_FILE, index=False)
-    else:
-        df_new.to_csv(HISTORY_LOG_FILE, index=False)
-
-
-def render_history_replay_section(wind_unit_text: str):
-    st.markdown("### 📚 Xem lại Bản tin Dự báo Cũ theo Giờ (Log History Replay)")
-    st.caption("Chọn mốc thời gian trong quá khứ để xem lại trọn vẹn bảng chi tiết và biểu đồ dự báo của thời điểm đó.")
-    
-    if not os.path.exists(HISTORY_LOG_FILE):
-        st.info("Chưa có dữ liệu lịch sử. Dữ liệu sẽ tự động được tích lũy sau mỗi lần ứng dụng hoạt động.")
-        return
-    
-    try:
-        df_log = pd.read_csv(HISTORY_LOG_FILE)
-        airports = df_log["Airport"].unique().tolist() if "Airport" in df_log.columns else []
-        
-        col_r1, col_r2 = st.columns(2)
-        with col_r1:
-            selected_airport_log = st.selectbox("Chọn Sân bay trong Log:", airports, key="replay_airport")
-        
-        df_airport_log = df_log[df_log["Airport"] == selected_airport_log]
-        timestamps = sorted(df_airport_log["Timestamp_Log"].unique().tolist(), reverse=True) if not df_airport_log.empty else []
-        
-        with col_r2:
-            selected_ts = st.selectbox("Chọn Thời điểm bản tin (Timestamp):", timestamps, key="replay_ts")
-            
-        if not selected_ts:
-            st.warning("Không có dữ liệu cho lựa chọn này.")
-            return
-            
-        df_filtered = df_airport_log[df_airport_log["Timestamp_Log"] == selected_ts]
-        
-        historical_forecasts: List[HourlyForecast] = []
-        for _, row in df_filtered.iterrows():
-            historical_forecasts.append(
-                HourlyForecast(
-                    forecast_time=str(row["Forecast_Time"]),
-                    temperature_2m=safe_float(row["Temperature_2m"]),
-                    relative_humidity_2m=safe_float(row["Relative_Humidity_2m"]),
-                    dew_point_2m=safe_float(row["Dew_Point_2m"]),
-                    precipitation_probability_model=safe_float(row["Pop_Model"]),
-                    precipitation=safe_float(row["Precipitation"]),
-                    rain=safe_float(row["Rain"]),
-                    showers=safe_float(row["Showers"]),
-                    weather_code=safe_int(row["Weather_Code"]),
-                    cloud_cover=safe_float(row["Cloud_Cover"]),
-                    cloud_cover_low=safe_float(row["Cloud_Cover_Low"]),
-                    cloud_cover_mid=safe_float(row["Cloud_Cover_Mid"]),
-                    cloud_cover_high=safe_float(row["Cloud_Cover_High"]),
-                    visibility_raw=safe_float(row["Visibility_Raw"]),
-                    visibility_m=safe_float(row["Visibility_M"]),
-                    surface_pressure=safe_float(row["Surface_Pressure"]),
-                    cape=safe_float(row["Cape"]),
-                    wind_speed_10m=safe_float(row["Wind_Speed_10m"]),
-                    wind_direction_10m=safe_float(row["Wind_Direction_10m"]),
-                    wind_gusts_10m=safe_float(row["Wind_Gusts_10m"]),
-                    relative_humidity_850hPa=safe_float(row["RH_850hPa"]),
-                    relative_humidity_700hPa=safe_float(row["RH_700hPa"]),
-                    vertical_velocity_700hPa=safe_float(row["Vertical_Velocity_700hPa"]),
-                    estimated_cloud_base_ft=safe_float(row["Estimated_Cloud_Base_ft"]),
-                    pop_calibrated=safe_float(row["Pop_Calibrated"]),
-                    thunder_probability=safe_float(row["Thunder_Probability"]),
-                    rain_level=str(row["Rain_Level"])
-                )
-            )
-            
-        st.success(f"Đang hiển thị lại bản tin lưu trữ lúc: **{selected_ts}** tại **{selected_airport_log}** ({len(historical_forecasts)} bản ghi giờ).")
-        
-        st.markdown("#### 📅 Bảng chi tiết từng giờ của bản tin cũ")
-        st.markdown(render_rp5_horizontal_table(historical_forecasts, wind_unit_text), unsafe_allow_html=True)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        st.markdown("#### 📈 Biểu đồ trực quan của bản tin cũ")
-        chart_data_old = pd.DataFrame([
-            {
-                "Thời gian": fc.forecast_time.replace("T", " "),
-                "Nhiệt độ 2m (°C)": fc.temperature_2m,
-                "PoP Hiệu chỉnh (%)": fc.pop_calibrated,
-                "Tầm nhìn Hiệu chỉnh (km)": round(fc.visibility_m / 1000.0, 1),
-                "Chân mây (ft)": fc.estimated_cloud_base_ft,
-            }
-            for fc in historical_forecasts
-        ])
-        
-        fig_old = go.Figure()
-        fig_old.add_trace(go.Scatter(x=chart_data_old["Thời gian"], y=chart_data_old["Nhiệt độ 2m (°C)"], name="Nhiệt độ (°C)", mode="lines+markers", line=dict(color="#ea580c")))
-        fig_old.add_trace(go.Scatter(x=chart_data_old["Thời gian"], y=chart_data_old["PoP Hiệu chỉnh (%)"], name="PoP Hiệu chỉnh (%)", mode="lines", line=dict(color="#1d4ed8", dash="dash")))
-        fig_old.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10), hovermode="x unified")
-        st.plotly_chart(fig_old, use_container_width=True, config={"scrollZoom": True})
-        
-    except Exception as e:
-        st.error(f"Lỗi khi tải bản tin lịch sử: {e}")
-
-
-# =========================
-# 5. HÀM TẠO BẢNG NGANG CHI TIẾT SỐ LIỆU
+# 4. HÀM TẠO BẢNG NGANG CHI TIẾT SỐ LIỆU
 # =========================
 
 def get_weather_icon(fc: HourlyForecast) -> str:
@@ -771,7 +625,7 @@ def render_rp5_horizontal_table(forecasts: List[HourlyForecast], wind_unit_text:
 
 
 # =========================
-# 6. GIAO DIỆN CHÍNH STREAMLIT
+# 5. GIAO DIỆN CHÍNH STREAMLIT
 # =========================
 
 st.markdown(
@@ -834,9 +688,6 @@ if not future_forecasts:
     st.warning("Không có dữ liệu dự báo khả dụng.")
     st.stop()
 
-# Tự động lưu log snapshot lịch sử
-save_forecast_history(selected_airport_name, future_forecasts, wind_unit_param)
-
 col_title, col_btn = st.columns([4, 1])
 with col_title:
     st.title(f"🌤️ Thời tiết tại {selected_airport_name}")
@@ -875,9 +726,6 @@ with st.expander("🌐 Yếu tố ảnh hưởng & Bản tin Phân tích Hệ th
     synoptic_outlook_html = generate_10_day_synoptic_outlook(future_forecasts[:240], LATITUDE, selected_airport_name)
     st.markdown(synoptic_outlook_html, unsafe_allow_html=True)
 
-with st.expander("📂 Xem lại Bản tin Dự báo Cũ (Log History Replay)", expanded=False):
-    render_history_replay_section(wind_unit_text)
-
 filtered = future_forecasts[: days_to_show * 24]
 
 st.markdown("### 📅 Bảng dự báo chi tiết từng giờ (Kéo ngang để xem)")
@@ -886,7 +734,7 @@ st.markdown(render_rp5_horizontal_table(filtered, wind_unit_text), unsafe_allow_
 st.markdown("<br>", unsafe_allow_html=True)
 
 # =========================
-# 7. BIỂU ĐỒ PHÂN TÍCH KHÍ TƯỢNG
+# 6. BIỂU ĐỒ PHÂN TÍCH KHÍ TƯỢNG
 # =========================
 
 st.markdown("### 📈 Biểu đồ Phân tích Chi tiết Từng Số liệu")
@@ -938,7 +786,7 @@ fig3 = go.Figure()
 fig3.add_trace(go.Bar(x=chart_data["Thời gian"], y=chart_data["Lượng mưa (mm)"], name="Lượng mưa (mm)", marker_color="#3b82f6"))
 fig3.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
 st.plotly_chart(fig3, use_container_width=True, config=touch_config)
-st.markdown("<br>", unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=Thread if 'Thread' in globals() else True)
 
 st.markdown(f"#### 💨 4. Tốc độ gió & Gió giật ({wind_unit_text})")
 fig4 = go.Figure()
