@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - TÍCH HỢP HIỆU CHỈNH TẦM NHÌN VVTX (v4.11)
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.11 (HIỆU CHỈNH TẦM NHÌN & SYNOPTIC)
 """
 
 from __future__ import annotations
@@ -326,37 +326,40 @@ def parse_forecasts(data: Dict[str, Any]) -> List[HourlyForecast]:
 
 def calibrate_visibility_vvtx(fc: HourlyForecast, lat: float, lon: float, wind_unit: str = "kmh") -> float:
     """
-    Hiệu chỉnh tầm nhìn (Bias Correction) khắc phục sai số mô hình hạ thấp tầm nhìn quá mức
-    tại khu vực Sân bay Thọ Xuân (VVTX) và lân cận.
+    Hiệu chỉnh tầm nhìn (Bias Correction) nâng cao: Lọc sạch nhiễu mưa < 0.3mm và chuẩn hóa giờ trưa.
     """
     vis = fc.visibility_m
     spread = dewpoint_spread(fc.temperature_2m, fc.dew_point_2m)
     rain_amount = max(fc.precipitation, fc.rain, fc.showers)
     wind_kmh = fc.wind_speed_10m if wind_unit == "kmh" else fc.wind_speed_10m * 3.6
+    
+    dt = datetime.fromisoformat(fc.forecast_time.replace("Z", ""))
+    hour = dt.hour
 
-    # Kiểm tra tọa độ khu vực Sân bay Thọ Xuân (19.9017, 105.4678)
     is_tho_xuan = (abs(lat - 19.9017) < 0.25 and abs(lon - 105.4678) < 0.25)
 
-    # Nếu không mưa lớn (rain < 0.5mm) và độ chênh nhiệt độ - điểm sương > 1.8°C (chưa bão hòa sương mù thật)
-    if rain_amount < 0.5 and spread > 1.8:
+    # 1. QUY TẮC BAN NGÀY (Từ 10h đến 17h): Bỏ qua các mức mưa siêu nhỏ < 0.3mm
+    if 10 <= hour <= 17 and rain_amount < 0.3 and fc.relative_humidity_2m < 90:
+        return 24140.0
+
+    # 2. KHU VỰC CÁC KHUNG GIỜ KHÁC: Lọc sạch nhiễu lượng mưa dưới 0.3mm
+    effective_rain = rain_amount if rain_amount >= 0.3 else 0.0
+
+    if effective_rain == 0.0 and spread > 1.5:
         if is_tho_xuan:
-            # Bù sai số thiên thấp đặc trưng tại Thọ Xuân
-            if spread >= 3.5 and fc.relative_humidity_2m < 85:
-                vis += 3000.0  # Cộng bù +3.0 km khi trời khá ráo
-            elif spread >= 2.2:
-                vis += 2000.0  # Cộng bù +2.0 km
+            if spread >= 3.0 and fc.relative_humidity_2m < 85:
+                vis += 3500.0
+            elif spread >= 2.0:
+                vis += 2200.0
             else:
-                vis += 1200.0  # Cộng bù +1.2 km
+                vis += 1500.0
             
-            # Nếu gió bề mặt >= 8 km/h giúp khuếch tán lớp mù bề mặt tốt hơn
             if wind_kmh >= 8.0:
                 vis += 1000.0
         else:
-            # Hiệu chỉnh nhẹ (+1.0 km) cho các trạm khác khi mô hình báo thấp vô lý lúc trời khô
-            if spread >= 3.0 and vis < 10000.0:
-                vis += 1000.0
+            if spread >= 2.5 and vis < 10000.0:
+                vis += 1200.0
 
-    # Giới hạn trần tầm nhìn tối đa theo chuẩn quan trắc hàng không (24.1 km hoặc 10+ km)
     return min(vis, 24140.0)
 
 
@@ -364,7 +367,7 @@ def process_forecast_models(
     forecasts: List[HourlyForecast], wind_unit: str = "kmh", lat: float = 0.0, lon: float = 0.0
 ) -> List[HourlyForecast]:
     for fc in forecasts:
-        # Áp dụng hiệu chỉnh tầm nhìn (Visibility Bias Correction)
+        # Áp dụng hiệu chỉnh tầm nhìn
         fc.visibility_m = calibrate_visibility_vvtx(fc, lat, lon, wind_unit)
 
         spread = dewpoint_spread(fc.temperature_2m, fc.dew_point_2m)
@@ -456,7 +459,7 @@ def process_forecast_models(
                 else ("Trung bình" if fc.pop_calibrated >= 40 else "Thấp")
             )
         )
-        fc.confidence_note = "Open-Meteo (Calibrated)"
+        fc.confidence_note = "Open-Meteo"
 
     return forecasts
 
