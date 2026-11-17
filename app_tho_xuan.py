@@ -1,12 +1,13 @@
 #!/usr/init/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.29
-(Bổ sung Thuật toán Tinh chỉnh theo mùa & Thuyết trình chuyên đề mùa vụ)
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.30
+(Vá lỗi NameError: import html & Tích hợp Tinh chỉnh theo mùa)
 """
 
 from __future__ import annotations
 
+import html
 import math
 import time
 from dataclasses import dataclass
@@ -383,11 +384,8 @@ def calibrate_visibility_and_wind(fc: HourlyForecast, lat: float, lon: float, wi
     is_tho_xuan_or_halac = (abs(lat - 19.9017) < 0.3 or abs(lat - 21.0167) < 0.3)
 
     # Thuật toán Tinh chỉnh theo mùa (Seasonal Calibration)
-    # 1. Mùa nồm ẩm / sương mù miền Bắc (Tháng 2 - Tháng 4): Tăng độ nhạy ẩm, giảm tầm nhìn ban đêm/sáng sớm
     is_nom_season = is_tho_xuan_or_halac and (2 <= month <= 4)
-    # 2. Mùa mưa bão / đối lưu (Tháng 5 - Tháng 10): Tăng cường độ gió và mây thấp
     is_storm_season = (5 <= month <= 10)
-    # 3. Mùa khô / hanh (Tháng 11 - Tháng 1): Tăng tầm nhìn ráo
     is_dry_season = (11 <= month or month == 1)
 
     if is_tho_xuan_or_halac and (hour >= 22 or hour <= 7) and fc.relative_humidity_2m >= 85:
@@ -411,7 +409,7 @@ def calibrate_visibility_and_wind(fc: HourlyForecast, lat: float, lon: float, wi
     if effective_rain == 0.0 and spread > 1.2:
         if is_tho_xuan_or_halac:
             if is_nom_season and fc.relative_humidity_2m >= 90:
-                vis = max(1000.0, vis - 2000.0) # Sương mù nồm ẩm dày đặc
+                vis = max(1000.0, vis - 2000.0)
             elif spread >= 3.0 and fc.relative_humidity_2m < 85:
                 vis += 4500.0 if is_dry_season else 3500.0
             elif spread >= 2.0:
@@ -441,7 +439,6 @@ def process_forecast_models(
         month = dt.month
         hour = get_hour(fc.forecast_time)
 
-        # Hệ số điều chỉnh theo mùa cho xác suất mưa và dông
         seasonal_pop_boost = 1.15 if (5 <= month <= 10) else (0.85 if (11 <= month or month <= 1) else 1.0)
 
         spread = dewpoint_spread(fc.temperature_2m, fc.dew_point_2m)
