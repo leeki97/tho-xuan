@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.33
-(Thêm đổi đơn vị độ cao mây ft/m đồng bộ cho thẻ chỉ số, biểu đồ & bảng ngang, cache 3h & phân tích hoàn lưu chi tiết)
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.35
+(Cache 3h, đổi đơn vị mây ft/m, nhận diện hình thế theo mùa & vùng khí hậu cho toàn bộ sân bay, phân tích chi tiết mưa/tầm nhìn/nhiệt độ)
 """
 
 from __future__ import annotations
@@ -210,7 +210,7 @@ def format_cloud_height(cloud_ft: float, cloud_unit: str) -> str:
 
 
 # =========================
-# 3. HÀM PHÂN TÍCH & DỮ LIỆU
+# 3. HÀM PHÂN TÍCH, NHẬN DIỆN HÌNH THẾ & DỮ LIỆU
 # =========================
 
 @dataclass
@@ -252,6 +252,249 @@ class HourlyForecast:
     thunder_probability: float = 0.0
     rain_level: str = ""
     confidence_note: str = ""
+
+
+def clamp(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
+    return max(minimum, min(maximum, value))
+
+
+def sigmoid(value: float) -> float:
+    if value >= 0:
+        return 1.0 / (1.0 + math.exp(-value))
+    z = math.exp(value)
+    return z / (1.0 + z)
+
+
+def normalize(value: float, low: float, high: float) -> float:
+    if high <= low:
+        return 0.0
+    return clamp((value - low) / (high - low) * 100.0)
+
+
+def dewpoint_spread(temperature: float, dewpoint: float) -> float:
+    return max(0.0, temperature - dewpoint)
+
+
+def get_hour(dt_text: str) -> int:
+    return parse_local_dt(dt_text).hour
+
+
+def wind_deg_to_dir(deg: float) -> str:
+    dirs = ["B", "ĐB", "Đ", "ĐN", "N", "TN", "T", "TB"]
+    idx = int((deg + 22.5) // 45) % 8
+    return dirs[idx]
+
+
+def _season_name(month: int) -> str:
+    if month in (12, 1, 2):
+        return "Mùa Đông"
+    if month in (3, 4):
+        return "Mùa Xuân (chuyển tiếp / nồm ẩm)"
+    if month in (5, 6, 7, 8):
+        return "Mùa Hè (cao điểm nắng nóng & mưa dông/Tây Nam)"
+    return "Mùa Thu (giao mùa & mưa lớn/không khí lạnh sớm)"
+
+
+def _climate_zone_by_lat(lat: float) -> str:
+    """
+    Phân vùng khí hậu theo vĩ độ sân bay để chuẩn hóa ngưỡng nhận diện hình thế:
+    - 'north_central': Bắc Bộ & Bắc Trung Bộ (lat >= 17.5)
+    - 'central_highlands': Trung Trung Bộ & Tây Nguyên (12.0 <= lat < 17.5)
+    - 'south': Nam Bộ & Nam Trung Bộ cực Nam (lat < 12.0)
+    """
+    if lat >= 17.5:
+        return "north_central"
+    if lat >= 12.0:
+        return "central_highlands"
+    return "south"
+
+
+def detect_synoptic_patterns(forecasts: List[HourlyForecast], lat: float) -> List[str]:
+    """
+    Nhận diện các hình thế hoàn lưu theo mùa vụ và vùng khí hậu cho toàn bộ
+    hệ thống sân bay Việt Nam từ chuỗi số liệu mô hình giờ.
+    """
+    if not forecasts:
+        return []
+
+    months = [parse_local_dt(fc.forecast_time).month for fc in forecasts]
+    dominant_month = max(set(months), key=months.count)
+    season_txt = _season_name(dominant_month)
+    zone = _climate_zone_by_lat(lat)
+
+    zone_label = {
+        "north_central": "Bắc Bộ & Bắc Trung Bộ",
+        "central_highlands": "Trung Trung Bộ & Tây Nguyên",
+        "south": "Nam Bộ & Nam Trung Bộ",
+    }[zone]
+
+    n = len(forecasts)
+    patterns: List[str] = [
+        f"**Mùa vụ & Vùng chi phối:** {season_txt} (tháng trọng tâm: {dominant_month:02d}) — khu vực {zone_label}."
+    ]
+
+    pressures = [fc.surface_pressure for fc in forecasts if fc.surface_pressure > 0]
+    p_first_avg = sum(pressures[:24]) / max(1, len(pressures[:24])) if pressures else 0.0
+    p_last_avg = sum(pressures[-24:]) / max(1, len(pressures[-24:])) if pressures else 0.0
+    p_delta = p_last_avg - p_first_avg
+
+    # 1. Áp cao lục địa / Không khí lạnh & KKL lệch Đông (chủ yếu vùng có lat >= 12.0, mùa thu-đông-xuân)
+    ne_count = sum(1 for fc in forecasts if 330.0 <= fc.wind_direction_10m or fc.wind_direction_10m <= 60.0)
+    ne_ratio = ne_count / n
+    cold_surge_wet = sum(
+        1
+        for fc in forecasts
+        if (20.0 <= fc.wind_direction_10m <= 115.0)
+        and fc.relative_humidity_850hPa >= 78.0
+        and (fc.cloud_cover_low >= 60.0 or max(fc.precipitation, fc.rain, fc.showers) >= 0.3)
+    )
+
+    if zone in ("north_central", "central_highlands") and dominant_month in (9, 10, 11, 12, 1, 2, 3, 4):
+        ne_min_ratio = 0.20 if zone == "north_central" else 0.25
+        p_high_min = 1014.0 if zone == "north_central" else 1013.0
+        if ne_ratio >= ne_min_ratio or (pressures and max(pressures) >= p_high_min):
+            if p_delta >= 1.2:
+                p_trend = "có xu hướng tăng / tăng cường"
+            elif p_delta <= -1.2:
+                p_trend = "có xu hướng suy yếu và dịch ra phía Đông"
+            else:
+                p_trend = "duy trì tương đối ổn định"
+            patterns.append(
+                f"**Áp cao lục địa / Không khí lạnh:** Gió Bắc–Đông Bắc chiếm ~{ne_ratio * 100:.0f}% số giờ, "
+                f"áp suất mặt đất {p_trend} ({p_delta:+.1f} hPa)."
+            )
+            if cold_surge_wet >= 3:
+                patterns.append(
+                    f"**Không khí lạnh tăng cường lệch Đông / Gió mùa Đông Bắc ẩm:** Ghi nhận {cold_surge_wet} mốc gió Đông Bắc–Đông "
+                    f"kèm ẩm tầng 850hPa cao và mây thấp/mưa rải rác, dễ gây mây thấp và mưa nhỏ/mưa rào."
+                )
+
+    # Gió Đông Bắc mùa khô ở phía Nam (tháng 11 - tháng 3)
+    if zone == "south" and dominant_month in (11, 12, 1, 2, 3) and ne_ratio >= 0.25:
+        patterns.append(
+            f"**Gió Đông Bắc mùa khô:** Gió hướng Bắc–Đông Bắc chiếm ~{ne_ratio * 100:.0f}% số giờ, "
+            f"thời tiết phổ biến ít mưa, nắng nhiều hơn vào ban ngày."
+        )
+
+    # 2. Sương mù & Nồm ẩm (áp dụng mọi sân bay)
+    rh_fog_min = 86.0 if zone in ("north_central", "central_highlands") else 88.0
+    spread_fog_max = 1.5 if zone == "north_central" else 1.2
+    fog_min_hits = 3 if zone == "north_central" else 4
+
+    fog_nom_count = sum(
+        1
+        for fc in forecasts
+        if fc.relative_humidity_2m >= rh_fog_min
+        and dewpoint_spread(fc.temperature_2m, fc.dew_point_2m) <= spread_fog_max
+        and (parse_local_dt(fc.forecast_time).hour <= 8 or parse_local_dt(fc.forecast_time).hour >= 21)
+    )
+    if fog_nom_count >= fog_min_hits:
+        nom_note = (
+            " (lưu ý nồm ẩm / mây thấp kéo dài)"
+            if dominant_month in (2, 3, 4) and zone == "north_central"
+            else ""
+        )
+        patterns.append(
+            f"**Sương mù / Mù ẩm sát bão hòa{nom_note}:** Có {fog_nom_count} mốc đêm–sáng sớm có độ ẩm >= {rh_fog_min:.0f}% "
+            f"và chênh nhiệt – điểm sương <= {spread_fog_max:.1f}°C, làm tăng nguy cơ suy giảm tầm nhìn."
+        )
+
+    # 3. Gió mùa Tây Nam (mùa mưa: tháng 5 - tháng 10)
+    sw_count = sum(
+        1
+        for fc in forecasts
+        if 195.0 <= fc.wind_direction_10m <= 265.0
+        and (fc.relative_humidity_850hPa >= 72.0 or max(fc.precipitation, fc.rain, fc.showers) >= 0.2)
+    )
+    sw_min_hits = 4 if zone == "south" else 6
+    if dominant_month in (5, 6, 7, 8, 9, 10) and sw_count >= sw_min_hits:
+        patterns.append(
+            f"**Gió mùa Tây Nam:** Ghi nhận {sw_count} mốc luồng gió Tây Nam–Tây hoạt động kèm ẩm tầng thấp–trung, "
+            f"thuận lợi phát sinh mưa rào và dông (thường rõ hơn về chiều và tối)."
+        )
+
+    # 4. Áp thấp nóng phía Tây (tháng 4 - tháng 8, vùng có lat >= 12.0)
+    if zone in ("north_central", "central_highlands"):
+        temp_hot_min = 32.5 if zone == "north_central" else 33.0
+        rh_hot_max = 70.0 if zone == "north_central" else 68.0
+        spread_hot_min = 5.5 if zone == "north_central" else 6.0
+        hot_min_hits = 3
+
+        hot_low_count = 0
+        for fc in forecasts:
+            dt_fc = parse_local_dt(fc.forecast_time)
+            sp_daytime = dewpoint_spread(fc.temperature_2m, fc.dew_point_2m)
+            is_west_or_sw_wind = 180.0 <= fc.wind_direction_10m <= 295.0
+            if (
+                dt_fc.month in (4, 5, 6, 7, 8)
+                and 9 <= dt_fc.hour <= 17
+                and fc.temperature_2m >= temp_hot_min
+                and fc.relative_humidity_2m <= rh_hot_max
+                and sp_daytime >= spread_hot_min
+                and max(fc.precipitation, fc.rain, fc.showers) < 0.2
+                and (is_west_or_sw_wind or fc.temperature_2m >= 35.0)
+            ):
+                hot_low_count += 1
+
+        if hot_low_count >= hot_min_hits:
+            max_hot_temp = max(fc.temperature_2m for fc in forecasts)
+            patterns.append(
+                f"**Áp thấp nóng phía Tây:** Ghi nhận {hot_low_count} mốc ban ngày nắng nóng, không khí khô hơn "
+                f"(nhiệt đỉnh ~{max_hot_temp:.1f}°C), chú ý nắng nóng/gió Tây ban ngày và dông nhiệt cục bộ về chiều tối."
+            )
+
+    # 5. Nhiễu động đới gió Đông & dấu hiệu mưa lớn / xoáy thuận nhiệt đới (mọi sân bay)
+    e_disturbance_count = sum(
+        1
+        for fc in forecasts
+        if (60.0 <= fc.wind_direction_10m <= 135.0)
+        and fc.relative_humidity_850hPa >= 76.0
+        and (fc.vertical_velocity_700hPa <= -0.07 or max(fc.precipitation, fc.rain, fc.showers) >= 0.8)
+    )
+    strong_rain_wind_count = sum(
+        1
+        for fc in forecasts
+        if max(fc.precipitation, fc.rain, fc.showers) >= 2.5
+        and (fc.wind_gusts_10m >= 38.0 or fc.relative_humidity_850hPa >= 85.0)
+    )
+    e_min_hits = 3 if zone in ("north_central", "central_highlands") else 4
+    strong_min_hits = 2 if zone in ("north_central", "central_highlands") else 3
+
+    if e_disturbance_count >= e_min_hits:
+        patterns.append(
+            f"**Nhiễu động đới gió Đông:** Có {e_disturbance_count} mốc gió Đông–Đông Nam ẩm "
+            f"kết hợp nâng mực 700hPa hoặc mưa, dễ gây mây dày, mưa rào và mưa vừa/to cục bộ."
+        )
+    if strong_rain_wind_count >= strong_min_hits:
+        patterns.append(
+            f"**Nhiễu động mạnh / Dấu hiệu xoáy thuận nhiệt đới – mưa lớn:** Xuất hiện {strong_rain_wind_count} mốc mưa đáng kể "
+            f"kèm gió giật hoặc ẩm tầng 850hPa rất cao; cần đối chiếu thêm bản đồ synop và cảnh báo áp thấp/bão."
+        )
+
+    # 6. Dải hội tụ nhiệt đới (ITCZ) / Đối lưu nhiệt ẩm mạnh (mọi sân bay)
+    itcz_conv_count = sum(
+        1
+        for fc in forecasts
+        if fc.relative_humidity_850hPa >= 80.0
+        and fc.relative_humidity_700hPa >= 70.0
+        and fc.vertical_velocity_700hPa <= -0.12
+        and (fc.cape >= 400.0 or max(fc.precipitation, fc.rain, fc.showers) >= 1.0)
+    )
+    cape_high_threshold = 700.0 if zone == "south" else 800.0
+    if itcz_conv_count >= 3 or (
+        dominant_month in (4, 5, 6, 7, 8, 9, 10) and any(fc.cape >= cape_high_threshold for fc in forecasts)
+    ):
+        patterns.append(
+            f"**Dải hội tụ nhiệt đới / Đối lưu nhiệt ẩm:** Có {itcz_conv_count} mốc hội tụ ẩm sâu (850–700hPa) "
+            f"kèm chuyển động nâng và năng lượng đối lưu CAPE, tiềm ẩn mưa rào, dông và gió giật mạnh."
+        )
+
+    if len(patterns) == 1:
+        patterns.append(
+            "**Trường khí áp & Hoàn lưu:** Phân bố khí áp và trường gió tương đối êm dịu, chưa nổi bật hình thế nhiễu động lớn kéo dài."
+        )
+
+    return patterns
 
 
 def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float, airport_name: str) -> str:
@@ -332,25 +575,32 @@ def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float
         if m["low_vis_hours"]:
             sample_vis = ", ".join(m["low_vis_hours"][:4])
             more_vis = f" (+{len(m['low_vis_hours']) - 4} mốc)" if len(m["low_vis_hours"]) > 4 else ""
-            low_vis_windows.append(f"• **{day}:** tầm nhìn thấp nhất ~{m['min_vis_km']:.1f}km — {sample_vis}{more_vis}")
+            low_vis_windows.append(
+                f"• **{day}:** tầm nhìn thấp nhất ~{m['min_vis_km']:.1f}km — {sample_vis}{more_vis}"
+            )
 
-    if lat >= 18.5:
-        region_synoptic = (
-            f"**1. Phân tích hoàn lưu khí quyển tại {airport_name} (Bắc Bộ & Bắc Trung Bộ):**\n"
-            "- **Trường áp & Gió:** Chịu tác động của hoàn lưu rìa tây/tây nam áp cao lạnh lục địa hoặc đới gió Đông–Đông Nam mang ẩm từ vịnh Bắc Bộ; gió nhẹ về đêm tạo điều kiện tích tụ ẩm sát mặt đất.\n"
-            "- **Độ ẩm tầng thấp & tầng 850hPa:** Khi RH 850hPa tăng cao và chênh lệch nhiệt độ – điểm sương thu hẹp, mây thấp và sương mù/mù nhẹ dễ hình thành vào cuối đêm và sáng sớm."
+    detected_patterns = detect_synoptic_patterns(forecasts, lat)
+    pattern_lines = "\n".join(f"- {item}" for item in detected_patterns)
+
+    zone = _climate_zone_by_lat(lat)
+    if zone == "north_central":
+        region_note = (
+            "- **Đặc trưng khu vực (Bắc Bộ & Bắc Trung Bộ):** Chú ý biến thiên khí áp/gió mùa, nắng nóng/áp thấp nóng phía Tây mùa hè và ẩm tầng 850hPa gây mây thấp, sương mù/mù nhẹ."
         )
-    elif 13.0 <= lat < 18.5:
-        region_synoptic = (
-            f"**1. Phân tích hoàn lưu khí quyển tại {airport_name} (Trung Trung Bộ):**\n"
-            "- **Hoàn lưu & Địa hình:** Chịu chi phối của đới gió Đông/Đông Bắc đưa ẩm từ biển vào kết hợp địa hình đón gió và nhiễu động gió trên cao.\n"
-            "- **Diễn biến mưa & mây:** Mưa rào và mây thấp có xu hướng gia tăng khi độ ẩm mực 850hPa–700hPa cao, đặc biệt vào chiều tối, đêm hoặc sáng sớm."
+    elif zone == "central_highlands":
+        region_note = (
+            "- **Đặc trưng khu vực (Trung Trung Bộ & Tây Nguyên):** Lưu ý tương tác giữa gió Đông/Đông Bắc, địa hình đón gió, hiệu ứng khô nóng mùa hè và độ ẩm mực 850–700hPa."
         )
     else:
-        region_synoptic = (
-            f"**1. Phân tích hoàn lưu khí quyển tại {airport_name} (Nam Bộ & Tây Nguyên):**\n"
-            "- **Hoàn lưu & Đối lưu nhiệt:** Bức xạ ban ngày làm tăng nhiệt và tích tụ năng lượng bất ổn định (CAPE), thuận lợi phát triển mây đối lưu vào trưa–chiều tối khi có hội tụ gió hoặc dòng ẩm."
+        region_note = (
+            "- **Đặc trưng khu vực (Nam Bộ & Nam Trung Bộ):** Chú ý đối lưu nhiệt ẩm, gió mùa Tây Nam và hội tụ ẩm phát triển rõ về chiều tối khi CAPE và độ ẩm tầng thấp tăng."
         )
+
+    region_synoptic = (
+        f"**1. Nhận diện hình thế hoàn lưu tại {airport_name}:**\n"
+        f"{pattern_lines}\n"
+        f"{region_note}"
+    )
 
     if rain_windows:
         rain_detail_text = (
@@ -381,37 +631,6 @@ def generate_10_day_synoptic_outlook(forecasts: List[HourlyForecast], lat: float
     )
 
     return "\n\n".join([region_synoptic, rain_detail_text, vis_detail_text, temp_detail_text])
-
-
-def clamp(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
-    return max(minimum, min(maximum, value))
-
-
-def sigmoid(value: float) -> float:
-    if value >= 0:
-        return 1.0 / (1.0 + math.exp(-value))
-    z = math.exp(value)
-    return z / (1.0 + z)
-
-
-def normalize(value: float, low: float, high: float) -> float:
-    if high <= low:
-        return 0.0
-    return clamp((value - low) / (high - low) * 100.0)
-
-
-def dewpoint_spread(temperature: float, dewpoint: float) -> float:
-    return max(0.0, temperature - dewpoint)
-
-
-def get_hour(dt_text: str) -> int:
-    return parse_local_dt(dt_text).hour
-
-
-def wind_deg_to_dir(deg: float) -> str:
-    dirs = ["B", "ĐB", "Đ", "ĐN", "N", "TN", "T", "TB"]
-    idx = int((deg + 22.5) // 45) % 8
-    return dirs[idx]
 
 
 @st.cache_data(ttl=10800, show_spinner=False)
@@ -955,7 +1174,7 @@ def show_model_presentation_modal():
         st.markdown(
             "**1. Ý nghĩa của việc Tinh chỉnh theo mùa:**\n\n"
             "- Thời tiết Việt Nam có sự phân hóa mùa vụ rất rõ rệt: **mùa nồm ẩm** (tháng 2–4), **mùa mưa dông/bão** (tháng 5–10) và **mùa khô/đông lạnh** (tháng 11–tháng 1).\n"
-            "- Các tham số như gió nhẹ ban đêm, sương mù/mây thấp sáng sớm và chỉ số bất ổn định đối lưu được hiệu chỉnh theo tháng và khung giờ để bám sát đặc trưng địa phương (đặc biệt tại khu vực Thọ Xuân / Hòa Lạc).\n\n"
+            "- Các tham số như gió nhẹ ban đêm, sương mù/mây thấp sáng sớm và chỉ số bất ổn định đối lưu được hiệu chỉnh theo tháng và khung giờ để bám sát đặc trưng địa phương trên toàn quốc.\n\n"
             "**2. Hiệu chỉnh hướng gió & độ ẩm tầng thấp:**\n\n"
             "- Gió Đông đến Đông Nam mang ẩm từ biển vào làm tăng điểm tích lũy độ ẩm, trong khi luồng gió khô (spread lớn) làm giảm khả năng duy trì mưa nhỏ kéo dài."
         )
@@ -990,7 +1209,7 @@ next_cycle_dt = datetime.strptime(current_cycle, "%Y-%m-%d %H:%M").replace(tzinf
 col_title, col_action = st.columns([3.5, 1])
 with col_title:
     st.title("✈️ Dự báo Mưa, Dông & Khí tượng Sân bay Việt Nam")
-    st.caption(f"Phiên bản v4.33 • Giờ hệ thống: {now_vn.strftime('%H:%M %d/%m/%Y')} (UTC+7)")
+    st.caption(f"Phiên bản v4.35 • Giờ hệ thống: {now_vn.strftime('%H:%M %d/%m/%Y')} (UTC+7)")
 with col_action:
     st.write("")
     if st.button("📚 Thuyết trình Mô hình", use_container_width=True):
