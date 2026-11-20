@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.30
-(Vá lỗi NameError: import html, sửa thụt lề công thức PoP, thêm @st.cache_data, bộ lọc khung giờ & giao diện chính)
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.31
+(Tích hợp cache thông minh theo chu kỳ 3 giờ/lần, bộ lọc khung giờ & giao diện hoàn chỉnh)
 """
 
 from __future__ import annotations
@@ -183,6 +183,16 @@ def parse_local_dt(dt_text: str) -> datetime:
     return dt.astimezone(ZoneInfo(TIMEZONE))
 
 
+def get_3h_cycle_key(now_dt: datetime) -> str:
+    """
+    Tạo khóa chu kỳ 3 tiếng/lần theo giờ Việt Nam (UTC+7):
+    00:00, 03:00, 06:00, 09:00, 12:00, 15:00, 18:00, 21:00.
+    """
+    cycle_hour = (now_dt.hour // 3) * 3
+    cycle_dt = now_dt.replace(hour=cycle_hour, minute=0, second=0, microsecond=0)
+    return cycle_dt.strftime("%Y-%m-%d %H:00")
+
+
 # =========================
 # 3. HÀM PHÂN TÍCH & DỮ LIỆU
 # =========================
@@ -320,8 +330,8 @@ def wind_deg_to_dir(deg: float) -> str:
     return dirs[idx]
 
 
-@st.cache_data(ttl=600, show_spinner=False)
-def fetch_open_meteo(lat: float, lon: float, wind_unit: str = "kmh") -> Dict[str, Any]:
+@st.cache_data(ttl=10800, show_spinner=False)  # Giữ cache tối đa 3 tiếng (10,800 giây)
+def fetch_open_meteo(lat: float, lon: float, wind_unit: str = "kmh", cycle_key: str = "") -> Dict[str, Any]:
     params = {
         "latitude": lat,
         "longitude": lon,
@@ -336,7 +346,9 @@ def fetch_open_meteo(lat: float, lon: float, wind_unit: str = "kmh") -> Dict[str
         try:
             response = requests.get(OPEN_METEO_URL, params=params, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
-            return response.json()
+            payload = response.json()
+            payload["_fetched_at"] = datetime.now(ZoneInfo(TIMEZONE)).strftime("%H:%M %d/%m/%Y")
+            return payload
         except requests.exceptions.RequestException as e:
             if attempt == max_retries - 1:
                 raise e
@@ -872,11 +884,13 @@ def show_model_presentation_modal():
 # =========================
 
 now_vn = datetime.now(ZoneInfo(TIMEZONE))
+current_cycle = get_3h_cycle_key(now_vn)
+next_cycle_dt = datetime.strptime(current_cycle, "%Y-%m-%d %H:%M").replace(tzinfo=ZoneInfo(TIMEZONE)) + timedelta(hours=3)
 
 col_title, col_action = st.columns([3.5, 1])
 with col_title:
     st.title("✈️ Dự báo Mưa, Dông & Khí tượng Sân bay Việt Nam")
-    st.caption(f"Phiên bản v4.30 • Cập nhật hệ thống: {now_vn.strftime('%H:%M %d/%m/%Y')} (UTC+7)")
+    st.caption(f"Phiên bản v4.31 • Giờ hệ thống: {now_vn.strftime('%H:%M %d/%m/%Y')} (UTC+7)")
 with col_action:
     st.write("")
     if st.button("📚 Thuyết trình Mô hình", use_container_width=True):
@@ -920,7 +934,12 @@ api_wind_unit = "kmh" if wind_unit_label == "km/h" else "ms"
 
 try:
     with st.spinner(f"Đang tải và xử lý dữ liệu khí tượng cho {selected_airport}..."):
-        raw_data = fetch_open_meteo(lat=lat, lon=lon, wind_unit=api_wind_unit)
+        raw_data = fetch_open_meteo(
+            lat=lat,
+            lon=lon,
+            wind_unit=api_wind_unit,
+            cycle_key=current_cycle,
+        )
         all_forecasts = parse_forecasts(raw_data)
         all_forecasts = process_forecast_models(all_forecasts, wind_unit=api_wind_unit, lat=lat, lon=lon)
 except Exception as exc:
@@ -930,6 +949,12 @@ except Exception as exc:
 if not all_forecasts:
     st.warning("Không có dữ liệu dự báo hợp lệ.")
     st.stop()
+
+fetched_at = raw_data.get("_fetched_at", current_cycle)
+st.caption(
+    f"🕒 Dữ liệu đồng bộ lúc: **{fetched_at}** • Chu kỳ 3h: `{current_cycle[11:]}` "
+    f"(Tự động cập nhật mới sau `{next_cycle_dt.strftime('%H:%M')}`)"
+)
 
 # Lọc chuỗi giờ theo lựa chọn của người dùng (tính từ thời điểm hiện tại trở đi nếu có)
 horizon_hours = HORIZON_OPTIONS[horizon_label]
