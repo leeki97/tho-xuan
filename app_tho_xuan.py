@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.36
-(Cache 3h, đổi đơn vị mây ft/m, nhận diện hình thế hiện tại riêng & biến đổi từng ngày trong 10 ngày,
-bản tin 3 phần gọn đẹp [hình thế / thời tiết trong ngày / xu hướng 10 ngày],
-lọc tầm nhìn thực sự < 6.0 km, bảng ngang trước & 3 biểu đồ nhiệt độ/tầm nhìn/mưa ở dưới)
+(Cache 3h, đổi đơn vị mây ft/m, nhận diện hình thế hiện tại riêng,
+tóm tắt điểm chuyển giao nổi bật & biến đổi từng ngày trong 10 ngày,
+bản tin 3 phần gọn đẹp, lọc tầm nhìn < 6.0 km, bảng ngang trước & 3 biểu đồ ở dưới)
 """
 
 from __future__ import annotations
@@ -434,6 +434,58 @@ def _detect_slice_patterns(slice_forecasts: List[HourlyForecast], lat: float) ->
     return found
 
 
+def _summarize_10_day_transitions(forecasts: List[HourlyForecast], lat: float) -> str:
+    """
+    Tổng hợp ngắn gọn các điểm chuyển giao hình thế, biến đổi khí áp rõ rệt
+    và các ngày xuất hiện nhiễu động/hình thế đặc trưng đáng chú ý trong 10 ngày.
+    """
+    days_map: Dict[str, List[HourlyForecast]] = {}
+    for fc in forecasts:
+        day_key = parse_local_dt(fc.forecast_time).strftime("%d/%m")
+        days_map.setdefault(day_key, []).append(fc)
+
+    day_entries = list(days_map.items())[:10]
+    if not day_entries:
+        return "• <b>Điểm chuyển giao nổi bật:</b> Chưa đủ dữ liệu."
+
+    highlights: List[str] = []
+    prev_p_avg: float | None = None
+    prev_main: str | None = None
+
+    for day_key, day_fcs in day_entries:
+        p_vals = [fc.surface_pressure for fc in day_fcs if fc.surface_pressure > 0]
+        p_avg = (sum(p_vals) / len(p_vals)) if p_vals else 0.0
+        pats = _detect_slice_patterns(day_fcs, lat)
+        curr_main = pats[0].split("(")[0].strip()
+
+        events: List[str] = []
+        if prev_p_avg is not None and p_avg > 0 and prev_p_avg > 0:
+            dp = p_avg - prev_p_avg
+            if dp >= 1.5:
+                events.append(f"tăng áp +{dp:.1f} hPa")
+            elif dp <= -1.5:
+                events.append(f"giảm áp {dp:.1f} hPa")
+
+        if prev_main is not None and curr_main != prev_main:
+            events.append(f"đổi pha sang {curr_main}")
+
+        for p_txt in pats[1:]:
+            p_short = p_txt.split("(")[0].strip()
+            if any(k in p_short.lower() for k in ("mưa lớn", "nhiễu động", "itcz", "đối lưu", "tây nam", "nóng")):
+                events.append(f"xuất hiện {p_short}")
+
+        if events:
+            highlights.append(f"<b>{day_key}</b> ({', '.join(events)})")
+
+        prev_p_avg = p_avg if p_avg > 0 else prev_p_avg
+        prev_main = curr_main
+
+    if not highlights:
+        return "• <b>Điểm chuyển giao nổi bật:</b> Trường khí áp và hình thế duy trì tương đối ổn định qua các ngày."
+
+    return "• <b>Điểm chuyển giao nổi bật:</b> " + "; ".join(highlights[:6]) + "."
+
+
 def _build_10_day_pattern_evolution(forecasts: List[HourlyForecast], lat: float) -> str:
     """
     Phân tích hình thế nổi bật của từng ngày trong 10 ngày tới và sự chuyển biến qua các ngày.
@@ -535,7 +587,7 @@ def _summarize_weather_slice(slice_forecasts: List[HourlyForecast]) -> Dict[str,
 def generate_synoptic_outlook(forecasts: List[HourlyForecast], lat: float, airport_name: str) -> str:
     """
     Hàm phân tích tổng hợp 3 phần gọn đẹp, thống nhất dấu đầu dòng:
-    1. Hệ thống hình thế ảnh hưởng (hiện tại riêng & biến đổi từng ngày trong 10 ngày tới)
+    1. Hệ thống hình thế ảnh hưởng (hiện tại riêng, điểm chuyển giao nổi bật & biến đổi từng ngày 10 ngày)
     2. Thời tiết trong ngày (Mưa, Nhiệt độ, Tầm nhìn)
     3. Xu hướng thời tiết trong 10 ngày tới (Mưa, Nhiệt độ, Tầm nhìn)
     """
@@ -545,16 +597,18 @@ def generate_synoptic_outlook(forecasts: List[HourlyForecast], lat: float, airpo
     now_local = parse_local_dt(forecasts[0].forecast_time)
     target_date_str = now_local.strftime("%d/%m")
 
-    # 1. HỆ THỐNG HÌNH THẾ ẢNH HƯỞNG: HIỆN TẠI RIÊNG & DIỄN BIẾN TỪNG NGÀY TRONG 10 NGÀY TỚI
+    # 1. HỆ THỐNG HÌNH THẾ ẢNH HƯỞNG
     current_slice = forecasts[: min(12, len(forecasts))]
     current_patterns = _detect_slice_patterns(current_slice, lat)
     current_lines = "\n".join(f"▪ <b>Hiện tại:</b> {item}" for item in current_patterns)
+    transition_summary = _summarize_10_day_transitions(forecasts, lat)
     evolution_lines = _build_10_day_pattern_evolution(forecasts, lat)
 
     sec1_patterns = (
         f"<b>1. Hệ thống hình thế ảnh hưởng tại {html.escape(airport_name)}:</b>\n"
         f"• <b>Hình thế hiện tại / ngắn hạn tới:</b>\n"
         f"{current_lines}\n"
+        f"{transition_summary}\n"
         f"• <b>Diễn biến &amp; thay đổi hình thế từng ngày trong 10 ngày tới:</b>\n"
         f"{evolution_lines}"
     )
