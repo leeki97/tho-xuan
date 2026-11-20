@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.31
-(Tích hợp cache thông minh theo chu kỳ 3 giờ/lần, bộ lọc khung giờ & giao diện hoàn chỉnh)
+WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.32
+(Sửa lỗi f-string m4.metric, tinh chỉnh delta_color="off" cho dòng phụ, cache 3h & giao diện đầy đủ)
 """
 
 from __future__ import annotations
@@ -890,7 +890,7 @@ next_cycle_dt = datetime.strptime(current_cycle, "%Y-%m-%d %H:%M").replace(tzinf
 col_title, col_action = st.columns([3.5, 1])
 with col_title:
     st.title("✈️ Dự báo Mưa, Dông & Khí tượng Sân bay Việt Nam")
-    st.caption(f"Phiên bản v4.31 • Giờ hệ thống: {now_vn.strftime('%H:%M %d/%m/%Y')} (UTC+7)")
+    st.caption(f"Phiên bản v4.32 • Giờ hệ thống: {now_vn.strftime('%H:%M %d/%m/%Y')} (UTC+7)")
 with col_action:
     st.write("")
     if st.button("📚 Thuyết trình Mô hình", use_container_width=True):
@@ -910,7 +910,7 @@ with col_f2:
     horizon_label = st.selectbox(
         "Khoảng thời gian hiển thị",
         options=list(HORIZON_OPTIONS.keys()),
-        index=1,  # Mặc định 72 giờ tới để tải nhanh và dễ quan sát
+        index=1,
     )
 
 with col_f3:
@@ -967,18 +967,48 @@ if not future_forecasts:
 filtered_forecasts = future_forecasts[:horizon_hours]
 current_fc = filtered_forecasts[0]
 
+# Định dạng số gió an toàn trước khi đưa vào f-string
+wind_fmt = f"{current_fc.wind_speed_10m:.1f}" if wind_unit_label == "m/s" else f"{current_fc.wind_speed_10m:.0f}"
+gust_fmt = f"{current_fc.wind_gusts_10m:.1f}" if wind_unit_label == "m/s" else f"{current_fc.wind_gusts_10m:.0f}"
+
 # Hàng chỉ số tóm tắt nhanh (Above the fold)
 m1, m2, m3, m4, m5, m6 = st.columns(6)
-m1.metric("Nhiệt độ", f"{current_fc.temperature_2m:.1f} °C", f"Điểm sương {current_fc.dew_point_2m:.1f}°C")
-m2.metric("Tầm nhìn", f"{current_fc.visibility_m / 1000:.1f} km", f"Gốc {current_fc.visibility_raw / 1000:.1f} km")
-m3.metric("Chân mây", f"{current_fc.estimated_cloud_base_ft:.0f} ft", f"Đỉnh {current_fc.estimated_cloud_top_ft:.0f} ft")
+m1.metric(
+    "Nhiệt độ",
+    f"{current_fc.temperature_2m:.1f} °C",
+    f"Điểm sương {current_fc.dew_point_2m:.1f}°C",
+    delta_color="off",
+)
+m2.metric(
+    "Tầm nhìn",
+    f"{current_fc.visibility_m / 1000:.1f} km",
+    f"Gốc {current_fc.visibility_raw / 1000:.1f} km",
+    delta_color="off",
+)
+m3.metric(
+    "Chân mây",
+    f"{current_fc.estimated_cloud_base_ft:.0f} ft",
+    f"Đỉnh {current_fc.estimated_cloud_top_ft:.0f} ft",
+    delta_color="off",
+)
 m4.metric(
     "Gió 10m",
-    f"{wind_deg_to_dir(current_fc.wind_direction_10m)} {current_fc.wind_speed_10m:.1f if wind_unit_label == 'm/s' else current_fc.wind_speed_10m:.0f} {wind_unit_label}",
-    f"Giật {current_fc.wind_gusts_10m:.1f if wind_unit_label == 'm/s' else current_fc.wind_gusts_10m:.0f} {wind_unit_label}",
+    f"{wind_deg_to_dir(current_fc.wind_direction_10m)} {wind_fmt} {wind_unit_label}",
+    f"Giật {gust_fmt} {wind_unit_label}",
+    delta_color="off",
 )
-m5.metric("PoP Hiệu chỉnh", f"{current_fc.pop_calibrated:.0f}%", f"Mức: {current_fc.rain_level}")
-m6.metric("Nguy cơ Dông", f"{current_fc.thunder_probability:.0f}%", f"CAPE {current_fc.cape:.0f} J/kg")
+m5.metric(
+    "PoP Hiệu chỉnh",
+    f"{current_fc.pop_calibrated:.0f}%",
+    f"Mức: {current_fc.rain_level}",
+    delta_color="off",
+)
+m6.metric(
+    "Nguy cơ Dông",
+    f"{current_fc.thunder_probability:.0f}%",
+    f"CAPE {current_fc.cape:.0f} J/kg",
+    delta_color="off",
+)
 
 # Bản tin nhận định hoàn lưu & xu thế 10 ngày
 outlook_md = generate_10_day_synoptic_outlook(all_forecasts, lat=lat, airport_name=selected_airport)
