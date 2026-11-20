@@ -3,7 +3,8 @@
 """
 WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.36
 (Cache 3h, đổi đơn vị mây ft/m, nhận diện hình thế theo mùa & vùng khí hậu toàn quốc,
-bản tin 3 phần [hình thế / thời tiết trong ngày / xu hướng 10 ngày], bảng ngang trước & 3 biểu đồ nhiệt độ/tầm nhìn/mưa ở dưới)
+bản tin 3 phần gọn đẹp [hình thế / thời tiết trong ngày / xu hướng 10 ngày],
+lọc tầm nhìn thực sự < 6.0 km, bảng ngang trước & 3 biểu đồ nhiệt độ/tầm nhìn/mưa ở dưới)
 """
 
 from __future__ import annotations
@@ -121,7 +122,7 @@ st.markdown(
         box-shadow: 0 1px 3px rgba(0,0,0,0.08);
         margin-bottom: 16px;
         font-size: 14.5px;
-        line-height: 1.6;
+        line-height: 1.65;
         color: #1e293b;
     }
 
@@ -331,7 +332,7 @@ def detect_synoptic_patterns(forecasts: List[HourlyForecast], lat: float) -> Lis
 
     n = len(forecasts)
     patterns: List[str] = [
-        f"**Mùa vụ & Vùng chi phối:** {season_txt} (tháng trọng tâm: {dominant_month:02d}) — khu vực {zone_label}."
+        f"<b>Mùa vụ &amp; Vùng chi phối:</b> {season_txt} (tháng trọng tâm: {dominant_month:02d}) — khu vực {zone_label}."
     ]
 
     pressures = [fc.surface_pressure for fc in forecasts if fc.surface_pressure > 0]
@@ -361,18 +362,18 @@ def detect_synoptic_patterns(forecasts: List[HourlyForecast], lat: float) -> Lis
             else:
                 p_trend = "duy trì tương đối ổn định"
             patterns.append(
-                f"**Áp cao lục địa / Không khí lạnh:** Gió Bắc–Đông Bắc chiếm ~{ne_ratio * 100:.0f}% số giờ, "
+                f"<b>Áp cao lục địa / Không khí lạnh:</b> Gió Bắc–Đông Bắc chiếm ~{ne_ratio * 100:.0f}% số giờ, "
                 f"áp suất mặt đất {p_trend} ({p_delta:+.1f} hPa)."
             )
             if cold_surge_wet >= 3:
                 patterns.append(
-                    f"**Không khí lạnh tăng cường lệch Đông / Gió mùa Đông Bắc ẩm:** Ghi nhận {cold_surge_wet} mốc gió Đông Bắc–Đông "
+                    f"<b>Không khí lạnh tăng cường lệch Đông / Gió mùa Đông Bắc ẩm:</b> Ghi nhận {cold_surge_wet} mốc gió Đông Bắc–Đông "
                     f"kèm ẩm tầng 850hPa cao và mây thấp/mưa rải rác, dễ gây mây thấp và mưa nhỏ/mưa rào."
                 )
 
     if zone == "south" and dominant_month in (11, 12, 1, 2, 3) and ne_ratio >= 0.25:
         patterns.append(
-            f"**Gió Đông Bắc mùa khô:** Gió hướng Bắc–Đông Bắc chiếm ~{ne_ratio * 100:.0f}% số giờ, "
+            f"<b>Gió Đông Bắc mùa khô:</b> Gió hướng Bắc–Đông Bắc chiếm ~{ne_ratio * 100:.0f}% số giờ, "
             f"thời tiết phổ biến ít mưa, nắng nhiều hơn vào ban ngày."
         )
 
@@ -386,6 +387,7 @@ def detect_synoptic_patterns(forecasts: List[HourlyForecast], lat: float) -> Lis
         for fc in forecasts
         if fc.relative_humidity_2m >= rh_fog_min
         and dewpoint_spread(fc.temperature_2m, fc.dew_point_2m) <= spread_fog_max
+        and (fc.visibility_m / 1000.0) < 6.0
         and (parse_local_dt(fc.forecast_time).hour <= 8 or parse_local_dt(fc.forecast_time).hour >= 21)
     )
     if fog_nom_count >= fog_min_hits:
@@ -395,8 +397,8 @@ def detect_synoptic_patterns(forecasts: List[HourlyForecast], lat: float) -> Lis
             else ""
         )
         patterns.append(
-            f"**Sương mù / Mù ẩm sát bão hòa{nom_note}:** Có {fog_nom_count} mốc đêm–sáng sớm có độ ẩm >= {rh_fog_min:.0f}% "
-            f"và chênh nhiệt – điểm sương <= {spread_fog_max:.1f}°C, làm tăng nguy cơ suy giảm tầm nhìn."
+            f"<b>Sương mù / Mù ẩm sát bão hòa{nom_note}:</b> Có {fog_nom_count} mốc đêm–sáng sớm có tầm nhìn &lt; 6.0 km, "
+            f"độ ẩm &gt;= {rh_fog_min:.0f}% và chênh nhiệt – điểm sương &lt;= {spread_fog_max:.1f}°C."
         )
 
     # 3. Gió mùa Tây Nam
@@ -409,7 +411,7 @@ def detect_synoptic_patterns(forecasts: List[HourlyForecast], lat: float) -> Lis
     sw_min_hits = 4 if zone == "south" else 6
     if dominant_month in (5, 6, 7, 8, 9, 10) and sw_count >= sw_min_hits:
         patterns.append(
-            f"**Gió mùa Tây Nam:** Ghi nhận {sw_count} mốc luồng gió Tây Nam–Tây hoạt động kèm ẩm tầng thấp–trung, "
+            f"<b>Gió mùa Tây Nam:</b> Ghi nhận {sw_count} mốc luồng gió Tây Nam–Tây hoạt động kèm ẩm tầng thấp–trung, "
             f"thuận lợi phát sinh mưa rào và dông (thường rõ hơn về chiều và tối)."
         )
 
@@ -439,7 +441,7 @@ def detect_synoptic_patterns(forecasts: List[HourlyForecast], lat: float) -> Lis
         if hot_low_count >= hot_min_hits:
             max_hot_temp = max(fc.temperature_2m for fc in forecasts)
             patterns.append(
-                f"**Áp thấp nóng phía Tây:** Ghi nhận {hot_low_count} mốc ban ngày nắng nóng, không khí khô hơn "
+                f"<b>Áp thấp nóng phía Tây:</b> Ghi nhận {hot_low_count} mốc ban ngày nắng nóng, không khí khô hơn "
                 f"(nhiệt đỉnh ~{max_hot_temp:.1f}°C), chú ý nắng nóng/gió Tây ban ngày và dông nhiệt cục bộ về chiều tối."
             )
 
@@ -462,12 +464,12 @@ def detect_synoptic_patterns(forecasts: List[HourlyForecast], lat: float) -> Lis
 
     if e_disturbance_count >= e_min_hits:
         patterns.append(
-            f"**Nhiễu động đới gió Đông:** Có {e_disturbance_count} mốc gió Đông–Đông Nam ẩm "
+            f"<b>Nhiễu động đới gió Đông:</b> Có {e_disturbance_count} mốc gió Đông–Đông Nam ẩm "
             f"kết hợp nâng mực 700hPa hoặc mưa, dễ gây mây dày, mưa rào và mưa vừa/to cục bộ."
         )
     if strong_rain_wind_count >= strong_min_hits:
         patterns.append(
-            f"**Nhiễu động mạnh / Dấu hiệu xoáy thuận nhiệt đới – mưa lớn:** Xuất hiện {strong_rain_wind_count} mốc mưa đáng kể "
+            f"<b>Nhiễu động mạnh / Dấu hiệu xoáy thuận nhiệt đới – mưa lớn:</b> Xuất hiện {strong_rain_wind_count} mốc mưa đáng kể "
             f"kèm gió giật hoặc ẩm tầng 850hPa rất cao; cần đối chiếu thêm bản đồ synop và cảnh báo áp thấp/bão."
         )
 
@@ -485,13 +487,13 @@ def detect_synoptic_patterns(forecasts: List[HourlyForecast], lat: float) -> Lis
         dominant_month in (4, 5, 6, 7, 8, 9, 10) and any(fc.cape >= cape_high_threshold for fc in forecasts)
     ):
         patterns.append(
-            f"**Dải hội tụ nhiệt đới / Đối lưu nhiệt ẩm:** Có {itcz_conv_count} mốc hội tụ ẩm sâu (850–700hPa) "
+            f"<b>Dải hội tụ nhiệt đới / Đối lưu nhiệt ẩm:</b> Có {itcz_conv_count} mốc hội tụ ẩm sâu (850–700hPa) "
             f"kèm chuyển động nâng và năng lượng đối lưu CAPE, tiềm ẩn mưa rào, dông và gió giật mạnh."
         )
 
     if len(patterns) == 1:
         patterns.append(
-            "**Trường khí áp & Hoàn lưu:** Phân bố khí áp và trường gió tương đối êm dịu, chưa nổi bật hình thế nhiễu động lớn kéo dài."
+            "<b>Trường khí áp &amp; Hoàn lưu:</b> Phân bố khí áp và trường gió tương đối êm dịu, chưa nổi bật hình thế nhiễu động lớn kéo dài."
         )
 
     return patterns
@@ -500,6 +502,7 @@ def detect_synoptic_patterns(forecasts: List[HourlyForecast], lat: float) -> Lis
 def _summarize_weather_slice(slice_forecasts: List[HourlyForecast]) -> Dict[str, Any]:
     """
     Tổng hợp mưa, nhiệt độ và tầm nhìn cho một lát cắt chuỗi dự báo.
+    Ưu tiên liệt kê các mốc giảm tầm nhìn thực sự (< 6.0 km) theo thứ tự thấp nhất trước.
     """
     temps = [fc.temperature_2m for fc in slice_forecasts]
     day_temps = [
@@ -517,7 +520,7 @@ def _summarize_weather_slice(slice_forecasts: List[HourlyForecast]) -> Dict[str,
     vis_km_list = [fc.visibility_m / 1000.0 for fc in slice_forecasts]
 
     rainy_slots: List[str] = []
-    low_vis_slots: List[str] = []
+    low_vis_candidates: List[tuple[float, str]] = []
 
     for fc in slice_forecasts:
         dt = parse_local_dt(fc.forecast_time)
@@ -528,8 +531,12 @@ def _summarize_weather_slice(slice_forecasts: List[HourlyForecast]) -> Dict[str,
         if fc.pop_calibrated >= 45 or rain_val >= 0.5 or fc.thunder_probability >= 35:
             rainy_slots.append(f"{dt.strftime('%H:%M')} ({rain_val:.1f}mm, PoP {fc.pop_calibrated:.0f}%)")
 
-        if vis_km < 5.0 or (spread <= 1.2 and fc.relative_humidity_2m >= 88):
-            low_vis_slots.append(f"{dt.strftime('%H:%M')} ({vis_km:.1f}km)")
+        if vis_km < 6.0:
+            fog_tag = " - mù/sương" if (spread <= 1.2 and fc.relative_humidity_2m >= 88) else ""
+            low_vis_candidates.append((vis_km, f"{dt.strftime('%H:%M')} ({vis_km:.1f}km{fog_tag})"))
+
+    low_vis_candidates.sort(key=lambda item: item[0])
+    low_vis_slots = [item[1] for item in low_vis_candidates]
 
     return {
         "min_temp": min(temps),
@@ -550,37 +557,43 @@ def _summarize_weather_slice(slice_forecasts: List[HourlyForecast]) -> Dict[str,
 
 def generate_synoptic_outlook(forecasts: List[HourlyForecast], lat: float, airport_name: str) -> str:
     """
-    Hàm phân tích tổng hợp 3 phần:
+    Hàm phân tích tổng hợp 3 phần gọn đẹp, thống nhất dấu đầu dòng:
     1. Hệ thống hình thế ảnh hưởng
-    2. Thời tiết trong ngày (mưa, nhiệt độ, tầm nhìn)
-    3. Xu hướng thời tiết trong 10 ngày tới (mưa, nhiệt độ, tầm nhìn)
+    2. Thời tiết trong ngày (Mưa, Nhiệt độ, Tầm nhìn)
+    3. Xu hướng thời tiết trong 10 ngày tới (Mưa, Nhiệt độ, Tầm nhìn)
     """
     if not forecasts:
         return "Đang cập nhật dữ liệu xu thế..."
 
     now_local = parse_local_dt(forecasts[0].forecast_time)
     target_date_str = now_local.strftime("%d/%m")
+    month_val = now_local.month
 
     # 1. Hệ thống hình thế ảnh hưởng
     detected_patterns = detect_synoptic_patterns(forecasts, lat)
-    pattern_lines = "\n".join(f"- {item}" for item in detected_patterns)
+    pattern_lines = "\n".join(f"• {item}" for item in detected_patterns)
 
     zone = _climate_zone_by_lat(lat)
     if zone == "north_central":
         zone_note = (
-            "- **Đặc trưng khu vực (Bắc Bộ & Bắc Trung Bộ):** Chú ý biến thiên khí áp/gió mùa, nắng nóng/áp thấp nóng phía Tây mùa hè và ẩm tầng 850hPa gây mây thấp, sương mù/mù nhẹ."
+            "• <b>Đặc trưng khu vực (Bắc Bộ &amp; Bắc Trung Bộ):</b> Biến thiên khí áp/gió mùa, nắng nóng/áp thấp nóng phía Tây mùa hè và ẩm 850hPa gây mây thấp, sương mù/mù nhẹ."
         )
     elif zone == "central_highlands":
-        zone_note = (
-            "- **Đặc trưng khu vực (Trung Trung Bộ & Tây Nguyên):** Lưu ý tương tác giữa gió Đông/Đông Bắc, địa hình đón gió, hiệu ứng khô nóng mùa hè và độ ẩm mực 850–700hPa."
-        )
+        if month_val in (4, 5, 6, 7, 8):
+            zone_note = (
+                "• <b>Đặc trưng khu vực (Trung Trung Bộ &amp; Tây Nguyên):</b> Tương tác gió Đông/Đông Bắc, hiệu ứng khô nóng mùa hè và độ ẩm mực 850–700hPa."
+            )
+        else:
+            zone_note = (
+                "• <b>Đặc trưng khu vực (Trung Trung Bộ &amp; Tây Nguyên):</b> Tương tác gió Đông/Đông Bắc mang ẩm, địa hình đón gió và độ ẩm mực 850–700hPa gây mây thấp, mưa rào/mưa vừa."
+            )
     else:
         zone_note = (
-            "- **Đặc trưng khu vực (Nam Bộ & Nam Trung Bộ):** Chú ý đối lưu nhiệt ẩm, gió mùa Tây Nam và hội tụ ẩm phát triển rõ về chiều tối khi CAPE và độ ẩm tầng thấp tăng."
+            "• <b>Đặc trưng khu vực (Nam Bộ &amp; Nam Trung Bộ):</b> Đối lưu nhiệt ẩm, gió mùa Tây Nam và hội tụ ẩm rõ về chiều tối khi CAPE và độ ẩm tầng thấp tăng."
         )
 
     sec1_patterns = (
-        f"**1. Hệ thống hình thế ảnh hưởng tại {airport_name}:**\n"
+        f"<b>1. Hệ thống hình thế ảnh hưởng tại {html.escape(airport_name)}:</b>\n"
         f"{pattern_lines}\n"
         f"{zone_note}"
     )
@@ -595,38 +608,39 @@ def generate_synoptic_outlook(forecasts: List[HourlyForecast], lat: float, airpo
     td = _summarize_weather_slice(today_forecasts)
 
     if td["rainy_slots"]:
-        slots_preview = ", ".join(td["rainy_slots"][:5])
-        more_slots = f" (+{len(td['rainy_slots']) - 5} mốc)" if len(td["rainy_slots"]) > 5 else ""
+        slots_preview = ", ".join(td["rainy_slots"][:4])
+        more_slots = f" (+{len(td['rainy_slots']) - 4} mốc)" if len(td["rainy_slots"]) > 4 else ""
         td_rain_line = (
-            f"- **Mưa:** Tổng lượng mưa khoảng **{td['total_rain']:.1f} mm** (đỉnh giờ **{td['max_rain']:.1f} mm**), "
-            f"PoP cao nhất **{td['max_pop']:.0f}%**, nguy cơ dông tối đa **{td['max_thunder']:.0f}%**. "
-            f"Khung giờ đáng lưu ý: {slots_preview}{more_slots}."
+            f"• <b>Mưa:</b> Tổng ~<b>{td['total_rain']:.1f} mm</b> (đỉnh giờ <b>{td['max_rain']:.1f} mm</b>), "
+            f"PoP đỉnh <b>{td['max_pop']:.0f}%</b>, dông tối đa <b>{td['max_thunder']:.0f}%</b> — "
+            f"mốc đáng chú ý: {slots_preview}{more_slots}."
         )
     else:
         td_rain_line = (
-            f"- **Mưa:** Ít mưa hoặc mưa rào nhẹ cục bộ (tổng mưa ~**{td['total_rain']:.1f} mm**, PoP cao nhất **{td['max_pop']:.0f}%**)."
+            f"• <b>Mưa:</b> Ít mưa hoặc mưa rào nhẹ rải rác (tổng ~<b>{td['total_rain']:.1f} mm</b>, "
+            f"PoP đỉnh <b>{td['max_pop']:.0f}%</b>)."
         )
 
     td_temp_line = (
-        f"- **Nhiệt độ:** Dao động từ **+{td['min_temp']:.1f}°C** đến **+{td['max_temp']:.1f}°C** "
-        f"(cao nhất ban ngày ~**+{td['max_day_temp']:.1f}°C**, thấp nhất đêm/sáng sớm ~**+{td['min_night_temp']:.1f}°C**, "
-        f"biên độ **{td['amp_temp']:.1f}°C**)."
+        f"• <b>Nhiệt độ:</b> <b>+{td['min_temp']:.1f}°C</b> đến <b>+{td['max_temp']:.1f}°C</b> "
+        f"(ngày cao nhất ~<b>+{td['max_day_temp']:.1f}°C</b>, đêm/sáng thấp nhất ~<b>+{td['min_night_temp']:.1f}°C</b>, "
+        f"biên độ <b>{td['amp_temp']:.1f}°C</b>)."
     )
 
     if td["low_vis_slots"]:
-        vis_preview = ", ".join(td["low_vis_slots"][:5])
-        more_vis = f" (+{len(td['low_vis_slots']) - 5} mốc)" if len(td["low_vis_slots"]) > 5 else ""
+        vis_preview = ", ".join(td["low_vis_slots"][:4])
+        more_vis = f" (+{len(td['low_vis_slots']) - 4} mốc)" if len(td["low_vis_slots"]) > 4 else ""
         td_vis_line = (
-            f"- **Tầm nhìn:** Trung bình ~**{td['avg_vis_km']:.1f} km**, thấp nhất khoảng **{td['min_vis_km']:.1f} km**. "
-            f"Các mốc dễ giảm tầm nhìn: {vis_preview}{more_vis}."
+            f"• <b>Tầm nhìn:</b> Trung bình ~<b>{td['avg_vis_km']:.1f} km</b>, thấp nhất ~<b>{td['min_vis_km']:.1f} km</b> — "
+            f"giờ thấp nhất: {vis_preview}{more_vis}."
         )
     else:
         td_vis_line = (
-            f"- **Tầm nhìn:** Phổ biến tốt, trung bình ~**{td['avg_vis_km']:.1f} km**, thấp nhất khoảng **{td['min_vis_km']:.1f} km**."
+            f"• <b>Tầm nhìn:</b> Khá tốt, trung bình ~<b>{td['avg_vis_km']:.1f} km</b>, thấp nhất ~<b>{td['min_vis_km']:.1f} km</b>."
         )
 
     sec2_today = (
-        f"**2. Thời tiết trong ngày ({target_date_str}):**\n"
+        f"<b>2. Thời tiết trong ngày ({target_date_str}):</b>\n"
         f"{td_rain_line}\n"
         f"{td_temp_line}\n"
         f"{td_vis_line}"
@@ -653,7 +667,7 @@ def generate_synoptic_outlook(forecasts: List[HourlyForecast], lat: float, airpo
                 "rains": [],
                 "rain_hours": [],
                 "min_vis_km": 999.0,
-                "low_vis_hours": [],
+                "low_vis_items": [],
             },
         )
         b["pops"].append(fc.pop_calibrated)
@@ -664,8 +678,9 @@ def generate_synoptic_outlook(forecasts: List[HourlyForecast], lat: float, airpo
         if fc.pop_calibrated >= 45 or rain_val >= 0.5 or fc.thunder_probability >= 35:
             b["rain_hours"].append(f"{dt.strftime('%H:%M')} ({rain_val:.1f}mm)")
 
-        if vis_km < 5.0 or (spread <= 1.2 and fc.relative_humidity_2m >= 88):
-            b["low_vis_hours"].append(f"{dt.strftime('%H:%M')} ({vis_km:.1f}km)")
+        if vis_km < 6.0:
+            fog_tag = " - mù/sương" if (spread <= 1.2 and fc.relative_humidity_2m >= 88) else ""
+            b["low_vis_items"].append((vis_km, f"{dt.strftime('%H:%M')} ({vis_km:.1f}km{fog_tag})"))
 
     for day_str, m in daily_summary.items():
         day_total_rain = sum(m["rains"])
@@ -675,48 +690,49 @@ def generate_synoptic_outlook(forecasts: List[HourlyForecast], lat: float, airpo
             rainy_days.append(day_str)
             hrs_txt = f" — giờ đáng chú ý: {', '.join(m['rain_hours'][:3])}" if m["rain_hours"] else ""
             rain_day_notes.append(
-                f"• **{day_str}:** tổng mưa ~{day_total_rain:.1f}mm, PoP đỉnh {day_max_pop:.0f}%{hrs_txt}"
+                f"▪ <b>{day_str}:</b> mưa ~{day_total_rain:.1f}mm, PoP đỉnh {day_max_pop:.0f}%{hrs_txt}"
             )
 
-        if m["low_vis_hours"]:
-            vis_hrs_txt = ", ".join(m["low_vis_hours"][:3])
+        if m["low_vis_items"]:
+            m["low_vis_items"].sort(key=lambda item: item[0])
+            top_low_vis = ", ".join(item[1] for item in m["low_vis_items"][:3])
             low_vis_day_notes.append(
-                f"• **{day_str}:** tầm nhìn thấp nhất ~{m['min_vis_km']:.1f}km ({vis_hrs_txt})"
+                f"▪ <b>{day_str}:</b> đáy ~{m['min_vis_km']:.1f}km ({top_low_vis})"
             )
 
     ten_d = _summarize_weather_slice(forecasts)
 
     if rainy_days:
         d10_rain_line = (
-            f"- **Mưa:** Các ngày có khả năng mưa/dông đáng kể gồm **{', '.join(rainy_days)}** "
-            f"(PoP đỉnh toàn kỳ **{ten_d['max_pop']:.0f}%**, nguy cơ dông tối đa **{ten_d['max_thunder']:.0f}%**).\n"
+            f"• <b>Mưa:</b> Đáng chú ý các ngày <b>{', '.join(rainy_days)}</b> "
+            f"(PoP đỉnh <b>{ten_d['max_pop']:.0f}%</b>, dông tối đa <b>{ten_d['max_thunder']:.0f}%</b>):\n"
             + "\n".join(rain_day_notes[:5])
         )
     else:
         d10_rain_line = (
-            f"- **Mưa:** Xu thế chung ít mưa diện rộng hoặc chỉ mưa rải rác/nhỏ cục bộ "
-            f"(PoP cao nhất toàn kỳ **{ten_d['max_pop']:.0f}%**, nguy cơ dông tối đa **{ten_d['max_thunder']:.0f}%**)."
+            f"• <b>Mưa:</b> Ít mưa diện rộng hoặc mưa rải rác/nhỏ cục bộ "
+            f"(PoP đỉnh <b>{ten_d['max_pop']:.0f}%</b>, dông tối đa <b>{ten_d['max_thunder']:.0f}%</b>)."
         )
 
     d10_temp_line = (
-        f"- **Nhiệt độ:** Dao động trong khoảng **+{ten_d['min_temp']:.1f}°C – +{ten_d['max_temp']:.1f}°C** "
-        f"(mức cao ban ngày phổ biến tới **+{ten_d['max_day_temp']:.1f}°C**, thấp nhất đêm/sáng sớm khoảng **+{ten_d['min_night_temp']:.1f}°C**, "
-        f"biên độ lớn nhất **+{ten_d['amp_temp']:.1f}°C**)."
+        f"• <b>Nhiệt độ:</b> <b>+{ten_d['min_temp']:.1f}°C – +{ten_d['max_temp']:.1f}°C</b> "
+        f"(ngày cao nhất ~<b>+{ten_d['max_day_temp']:.1f}°C</b>, đêm/sáng thấp nhất ~<b>+{ten_d['min_night_temp']:.1f}°C</b>, "
+        f"biên độ lớn nhất <b>{ten_d['amp_temp']:.1f}°C</b>)."
     )
 
     if low_vis_day_notes:
         d10_vis_line = (
-            f"- **Tầm nhìn:** Trung bình toàn kỳ ~**{ten_d['avg_vis_km']:.1f} km**, thấp nhất khoảng **{ten_d['min_vis_km']:.1f} km**; "
-            f"cần chú ý giảm tầm nhìn/sương mù vào các ngày:\n" + "\n".join(low_vis_day_notes[:5])
+            f"• <b>Tầm nhìn:</b> Trung bình ~<b>{ten_d['avg_vis_km']:.1f} km</b>, thấp nhất ~<b>{ten_d['min_vis_km']:.1f} km</b> — "
+            f"các ngày giảm tầm nhìn:\n" + "\n".join(low_vis_day_notes[:5])
         )
     else:
         d10_vis_line = (
-            f"- **Tầm nhìn:** Nhìn chung duy trì khá tốt trong chuỗi 10 ngày (trung bình ~**{ten_d['avg_vis_km']:.1f} km**, "
-            f"thấp nhất khoảng **{ten_d['min_vis_km']:.1f} km**)."
+            f"• <b>Tầm nhìn:</b> Khá tốt trong chuỗi 10 ngày (trung bình ~<b>{ten_d['avg_vis_km']:.1f} km</b>, "
+            f"thấp nhất ~<b>{ten_d['min_vis_km']:.1f} km</b>)."
         )
 
     sec3_10days = (
-        f"**3. Xu hướng thời tiết trong 10 ngày tới:**\n"
+        f"<b>3. Xu hướng thời tiết trong 10 ngày tới:</b>\n"
         f"{d10_rain_line}\n"
         f"{d10_temp_line}\n"
         f"{d10_vis_line}"
