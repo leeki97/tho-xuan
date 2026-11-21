@@ -4,7 +4,8 @@
 WEB APP DỰ BÁO MƯA & DÔNG HỆ THỐNG SÂN BAY VIỆT NAM - HOÀN CHỈNH v4.36
 (Cache 3h, đổi đơn vị mây ft/m, nhận diện hình thế hiện tại riêng,
 tóm tắt điểm chuyển giao nổi bật & biến đổi từng ngày trong 10 ngày,
-bản tin 3 phần gọn đẹp, lọc tầm nhìn < 6.0 km, bảng ngang trước & 3 biểu đồ ở dưới)
+kéo ngang trực tiếp bằng chuột trên bảng dự báo, lọc tầm nhìn < 6.0 km,
+bảng ngang trước & 3 biểu đồ ở dưới)
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 # =========================
 # 1. DANH SÁCH SÂN BAY & CẤU HÌNH
@@ -987,7 +989,7 @@ def process_forecast_models(
 
 
 # =========================
-# 4. BẢNG NGANG & 3 BIỂU ĐỒ (NHIỆT ĐỘ, TẦM NHÌN, LƯỢNG MƯA)
+# 4. BẢNG NGANG, KÉO CHUỘT NGANG & 3 BIỂU ĐỒ
 # =========================
 
 def get_weather_icon(fc: HourlyForecast) -> str:
@@ -1127,7 +1129,7 @@ def render_rp5_horizontal_table(
 
     table_html = f"""
     <style>
-        .rp5-container {{ width: 100%; overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 8px; background: #ffffff; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }}
+        .rp5-container {{ width: 100%; overflow-x: auto; border: 1px solid #cbd5e1; border-radius: 8px; background: #ffffff; box-shadow: 0 2px 6px rgba(0,0,0,0.06); cursor: grab; }}
         .rp5-table {{ border-collapse: collapse; width: max-content; font-family: 'Inter', sans-serif; font-size: 13px; text-align: center; }}
         .rp5-table th, .rp5-table td {{ border: 1px solid #e2e8f0; padding: 6px 10px; white-space: nowrap; }}
         .sticky-col {{ position: sticky; left: 0; background-color: #f1f5f9 !important; z-index: 2; text-align: left !important; font-weight: 600; color: #1e293b; border-right: 2px solid #94a3b8 !important; }}
@@ -1163,6 +1165,73 @@ def render_rp5_horizontal_table(
     </div>
     """
     return table_html
+
+
+def enable_horizontal_drag_scroll(container_class: str = "rp5-container") -> None:
+    """
+    Cho phép nhấn giữ chuột trái và kéo ngang trực tiếp trên bảng dự báo.
+    """
+    js_code = f"""
+    <script>
+    (function() {{
+        const parentDoc = window.parent.document;
+
+        function bindDragScroll() {{
+            const el = parentDoc.querySelector(".{container_class}");
+            if (!el || el.dataset.dragBound === "1") return;
+            el.dataset.dragBound = "1";
+            el.style.cursor = "grab";
+
+            let isDown = false;
+            let startX = 0;
+            let scrollLeft = 0;
+            let moved = false;
+
+            el.addEventListener("mousedown", (e) => {{
+                if (e.button !== 0) return;
+                isDown = true;
+                moved = false;
+                el.style.cursor = "grabbing";
+                el.style.userSelect = "none";
+                startX = e.pageX - el.offsetLeft;
+                scrollLeft = el.scrollLeft;
+            }});
+
+            window.parent.addEventListener("mouseup", () => {{
+                if (!isDown) return;
+                isDown = false;
+                el.style.cursor = "grab";
+                el.style.removeProperty("user-select");
+                setTimeout(() => {{ moved = false; }}, 0);
+            }});
+
+            el.addEventListener("mousemove", (e) => {{
+                if (!isDown) return;
+                const x = e.pageX - el.offsetLeft;
+                if (Math.abs(x - startX) > 4) {{
+                    moved = true;
+                }}
+                if (!moved) return;
+                e.preventDefault();
+                const walk = (x - startX) * 1.25;
+                el.scrollLeft = scrollLeft - walk;
+            }});
+
+            el.addEventListener("click", (e) => {{
+                if (moved) {{
+                    e.preventDefault();
+                    e.stopPropagation();
+                }}
+            }}, true);
+        }}
+
+        bindDragScroll();
+        const observer = new MutationObserver(bindDragScroll);
+        observer.observe(parentDoc.body, {{ childList: true, subtree: true }});
+    }})();
+    </script>
+    """
+    components.html(js_code, height=0, width=0)
 
 
 def render_aviation_charts(forecasts: List[HourlyForecast], airport_name: str) -> None:
@@ -1465,10 +1534,12 @@ outlook_md = generate_synoptic_outlook(all_forecasts, lat=lat, airport_name=sele
 st.markdown(f'<div class="summary-box">{outlook_md.replace(chr(10), "<br>")}</div>', unsafe_allow_html=True)
 
 st.subheader(f"📋 Bảng số liệu chi tiết từng giờ ({horizon_label})")
+st.caption("💡 Mẹo: Nhấn giữ chuột trái và kéo sang trái/phải trực tiếp trên bảng để xem các mốc giờ tiếp theo.")
 st.markdown(
     render_rp5_horizontal_table(filtered_forecasts, wind_unit_text=wind_unit_label, cloud_unit=cloud_unit),
     unsafe_allow_html=True,
 )
+enable_horizontal_drag_scroll("rp5-container")
 
 st.subheader(f"📈 Biểu đồ Nhiệt độ, Tầm nhìn & Lượng mưa ({horizon_label})")
 render_aviation_charts(filtered_forecasts, airport_name=selected_airport)
